@@ -1,0 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", sans-serif;
+  --font-serif: "EB Garamond", serif; /* Added the new YC-style font */
+  
+  /* Richer Slate & Deep Blue Scheme */
+  --color-dvs-bg: #f1f5f9;
+  --color-dvs-surface: #ffffff;
+  --color-dvs-border: #cbd5e1;
+  --color-dvs-text: #0f172a;
+  
+  --color-dvs-primary: #1e40af;
+  --color-dvs-primary-hover: #1e3a8a;
+  --color-dvs-muted: #475569;
+}
+
+body {
+  background-color: var(--color-dvs-bg);
+  color: var(--color-dvs-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.bg-grid-pattern {
+  background-image: linear-gradient(to right, rgba(15, 23, 42, 0.05) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(15, 23, 42, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
