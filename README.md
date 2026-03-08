@@ -1,16 +1,28 @@
-# React + Vite
+# Vox
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Vox is being rebuilt from scratch as a learning-first decentralized voting project.
 
-Currently, two official plugins are available:
+The previous smart contract, deployment, and wallet integration code has been removed on purpose. The goal is to rebuild the full system step by step and understand every layer before moving on.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Current state
 
-## React Compiler
+- frontend design preserved
+- blockchain implementation removed
+- repo reset to a React baseline
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Rebuild sequence
 
-## Expanding the ESLint configuration
+1. Learn blockchain basics without code
+2. Learn Ethereum tooling and local development workflow
+3. Add the smallest possible Solidity contract
+4. Compile, deploy, and interact with it locally
+5. Expand it into a minimal voting contract
+6. Test the rules
+7. Connect the frontend
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Ground rules
+
+- no unexplained code
+- no blind copy-paste
+- no feature jumps before concepts are clear
+- the repo should remain understandable end to end
