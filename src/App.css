@@ -143,6 +143,10 @@
   color: #166534;
 }
 
+.context-status.info {
+  color: #1d4ed8;
+}
+
 .page-header {
   max-width: 980px;
   min-height: calc(100vh - 48px);
@@ -257,10 +261,42 @@
   margin-bottom: 0;
 }
 
+.panel-header-meta {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
 .panel-subtext {
   margin: 0;
   max-width: 36ch;
   line-height: 1.6;
+}
+
+.role-banner {
+  display: grid;
+  gap: 16px;
+  min-height: unset;
+  padding-top: 24px;
+  padding-bottom: 24px;
+}
+
+.role-banner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.role-banner-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.role-banner-grid p {
+  margin: 0;
+  line-height: 1.55;
 }
 
 .subsection-label {
@@ -392,6 +428,13 @@
   padding-top: 16px;
 }
 
+.button-helper {
+  margin: 10px 0 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+
 .poll-form {
   display: grid;
   gap: 12px;
@@ -448,6 +491,33 @@
 .warning-text {
   margin: 12px 0 0;
   line-height: 1.55;
+}
+
+.inline-feedback {
+  margin: 12px 0 0;
+  border-left: 3px solid transparent;
+  padding-left: 10px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.inline-feedback.error {
+  border-left-color: #dc2626;
+  color: #b91c1c;
+}
+
+.inline-feedback.success {
+  border-left-color: #16a34a;
+  color: #166534;
+}
+
+.inline-feedback.info {
+  border-left-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.inline-compact {
+  margin-top: 8px;
 }
 
 .rule-list {
@@ -622,6 +692,45 @@
   color: #166534;
 }
 
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 7px 11px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.9);
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.role-admin {
+  color: #166534;
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(22, 163, 74, 0.3);
+}
+
+.role-voter {
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.28);
+}
+
+.role-viewer,
+.role-disconnected {
+  color: #475569;
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.role-wrong_network {
+  color: #b45309;
+  background: rgba(251, 191, 36, 0.16);
+  border-color: rgba(217, 119, 6, 0.3);
+}
+
 @media (max-width: 1100px) {
   .page-flow {
     max-width: 980px;
@@ -638,15 +747,21 @@
   .admin-action-row,
   .status-row,
   .poll-list,
+  .role-banner-grid,
   .panel-header,
   .candidate-head {
     grid-template-columns: 1fr;
   }
 
   .panel-header,
+  .role-banner-head,
   .candidate-head {
     display: grid;
     gap: 8px;
+  }
+
+  .panel-header-meta {
+    justify-items: start;
   }
 
   .panel-subtext {
@@ -723,5 +838,4 @@
     gap: 4px;
   }
 }
-
 

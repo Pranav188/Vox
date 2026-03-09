@@ -76,46 +76,8 @@ function shortenAddress(address) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-function getReadableError(error, fallbackMessage) {
-  const rawMessage = error?.shortMessage || error?.reason || error?.message || fallbackMessage;
-
-  if (rawMessage.includes("Only admin can register voters")) {
-    return "Only the admin wallet can register voters.";
-  }
-
-  if (rawMessage.includes("Only admin can open voting")) {
-    return "Only the admin wallet can open voting.";
-  }
-
-  if (rawMessage.includes("Only admin can close voting")) {
-    return "Only the admin wallet can close voting.";
-  }
-
-  if (rawMessage.includes("Voting is closed")) {
-    return "Voting is currently closed.";
-  }
-
-  if (rawMessage.includes("You are not a registered voter")) {
-    return "This wallet is not registered to vote.";
-  }
-
-  if (rawMessage.includes("You have already voted")) {
-    return "This wallet has already cast its vote.";
-  }
-
-  if (rawMessage.includes("Invalid candidate index")) {
-    return "That candidate selection is invalid.";
-  }
-
-  if (rawMessage.includes("user rejected") || rawMessage.includes("User denied")) {
-    return "The transaction was rejected in MetaMask.";
-  }
-
-  if (rawMessage.includes("missing revert data")) {
-    return fallbackMessage;
-  }
-
-  return rawMessage;
+function shortenHash(hash) {
+  return `${hash.slice(0, 10)}...${hash.slice(-8)}`;
 }
 
 function getFallbackProfile(index, name) {
@@ -131,11 +93,34 @@ function getFallbackProfile(index, name) {
   };
 }
 
+function makeStatus(type, stage, action, message, txHash = "") {
+  return { type, stage, action, message, txHash };
+}
+
+function normalizeError(error, fallbackMessage) {
+  const source = error?.shortMessage || error?.reason || error?.message || fallbackMessage;
+
+  return source
+    .replace("execution reverted: ", "")
+    .replace("reverted with reason string ", "")
+    .replace(/\(action=.*$/u, "")
+    .trim();
+}
+
+function renderStatusLine(feedback, className = "") {
+  if (!feedback) {
+    return null;
+  }
+
+  return <p className={`inline-feedback ${feedback.type} ${className}`.trim()}>{feedback.message}</p>;
+}
+
 function App() {
   const [walletState, setWalletState] = useState({
     account: "",
     chainId: null,
   });
+  const [previousAccount, setPreviousAccount] = useState("");
   const [electionState, setElectionState] = useState({
     electionName: "",
     admin: "",
@@ -143,11 +128,17 @@ function App() {
     candidateCount: 0,
     candidates: [],
   });
-  const [walletInsights, setWalletInsights] = useState({
-    isRegistered: false,
-    hasVoted: false,
+  const [isRegisteredVoter, setIsRegisteredVoter] = useState(false);
+  const [isResolvingRole, setIsResolvingRole] = useState(false);
+  const [status, setStatus] = useState(
+    makeStatus("info", "idle", "init", "Connecting to the local blockchain..."),
+  );
+  const [actionStatus, setActionStatus] = useState({
+    vote: null,
+    registerVoter: null,
+    openVoting: null,
+    closeVoting: null,
   });
-  const [status, setStatus] = useState("Connecting to the local blockchain...");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
   const [adminForm, setAdminForm] = useState({
@@ -159,53 +150,93 @@ function App() {
   const [activeCandidateDetails, setActiveCandidateDetails] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [detailMotion, setDetailMotion] = useState({ dx: 0, dy: 0, sx: 1, sy: 1 });
-
   const clickTimeoutsRef = useRef({});
   const closeDetailTimeoutRef = useRef(null);
 
-  useEffect(() => {
-    async function loadWalletState() {
-      if (!window.ethereum) {
-        return;
-      }
+  const isCorrectNetwork = walletState.chainId === LOCAL_ELECTION.chainId;
+  const isAdmin =
+    walletState.account &&
+    electionState.admin &&
+    walletState.account.toLowerCase() === electionState.admin.toLowerCase();
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const accounts = await window.ethereum.request({ method: "eth_accounts" });
-      const network = await provider.getNetwork();
-
-      setWalletState({
-        account: accounts[0] || "",
-        chainId: Number(network.chainId),
-      });
+  const roleState = useMemo(() => {
+    if (!walletState.account) {
+      return { key: "disconnected", label: "Disconnected" };
     }
 
-    loadWalletState();
-
-    if (!window.ethereum) {
-      return undefined;
+    if (!isCorrectNetwork) {
+      return { key: "wrong_network", label: "Wrong network" };
     }
 
-    function handleAccountsChanged(accounts) {
-      setWalletState((currentState) => ({
-        ...currentState,
-        account: accounts[0] || "",
-      }));
+    if (isAdmin) {
+      return { key: "admin", label: "Admin" };
     }
 
-    function handleChainChanged(chainIdHex) {
-      setWalletState((currentState) => ({
-        ...currentState,
-        chainId: Number.parseInt(chainIdHex, 16),
-      }));
+    if (isRegisteredVoter) {
+      return { key: "voter", label: "Voter" };
     }
 
-    window.ethereum.on("accountsChanged", handleAccountsChanged);
-    window.ethereum.on("chainChanged", handleChainChanged);
+    return { key: "viewer", label: "Viewer" };
+  }, [isAdmin, isCorrectNetwork, isRegisteredVoter, walletState.account]);
 
-    return () => {
-      window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
-      window.ethereum.removeListener("chainChanged", handleChainChanged);
-    };
+  const roleGuidance = useMemo(() => {
+    if (roleState.key === "disconnected") {
+      return "Connect MetaMask to unlock voting and admin actions.";
+    }
+
+    if (roleState.key === "wrong_network") {
+      return `Switch MetaMask to ${LOCAL_ELECTION.chainName} to continue testing.`;
+    }
+
+    if (roleState.key === "admin") {
+      return "You can register voters and open or close voting from the admin panel.";
+    }
+
+    if (roleState.key === "voter") {
+      return electionState.votingOpen
+        ? "Voting is open. You can submit one vote from the candidate cards."
+        : "Voting is currently closed. Wait for admin to open voting.";
+    }
+
+    return "You can view live election data. Register this wallet as a voter to cast votes.";
+  }, [electionState.votingOpen, roleState.key]);
+
+  const networkLabel = useMemo(() => {
+    if (!walletState.chainId) {
+      return "Not connected";
+    }
+
+    if (isCorrectNetwork) {
+      return LOCAL_ELECTION.chainName;
+    }
+
+    return `Chain ${walletState.chainId} (expected ${LOCAL_ELECTION.chainId})`;
+  }, [isCorrectNetwork, walletState.chainId]);
+
+  const updateActionStatus = useCallback((actionKey, feedback) => {
+    setActionStatus((current) => ({
+      ...current,
+      [actionKey]: feedback,
+    }));
+  }, []);
+
+  const refreshVoterRole = useCallback(async (account, chainId) => {
+    if (!account || chainId !== LOCAL_ELECTION.chainId) {
+      setIsRegisteredVoter(false);
+      setIsResolvingRole(false);
+      return;
+    }
+
+    try {
+      setIsResolvingRole(true);
+      const contract = getReadOnlyElectionContract();
+      const registered = await contract.isRegisteredVoter(account);
+      setIsRegisteredVoter(Boolean(registered));
+    } catch {
+      setIsRegisteredVoter(false);
+    } finally {
+      setIsResolvingRole(false);
+    }
   }, []);
 
   const refreshElectionState = useCallback(async () => {
@@ -228,10 +259,6 @@ function App() {
         });
       }
 
-      const activeAccount = walletState.account;
-      const isRegistered = activeAccount ? await contract.isRegisteredVoter(activeAccount) : false;
-      const hasVoted = activeAccount ? await contract.hasVoted(activeAccount) : false;
-
       setElectionState({
         electionName,
         admin,
@@ -239,39 +266,133 @@ function App() {
         candidateCount,
         candidates,
       });
-      setWalletInsights({
-        isRegistered,
-        hasVoted,
+
+      setStatus((currentStatus) => {
+        if (currentStatus.stage === "pending") {
+          return currentStatus;
+        }
+
+        return makeStatus(
+          "success",
+          "idle",
+          "sync",
+          "Read-only frontend is connected to the deployed Election contract.",
+        );
       });
-      setStatus("Read-only frontend is connected to the deployed Election contract.");
     } catch (error) {
-      setWalletInsights({
-        isRegistered: false,
-        hasVoted: false,
-      });
       setStatus(
-        error?.message ||
-          "Could not read the local contract. Make sure the Hardhat node is running and Election is deployed.",
+        makeStatus(
+          "error",
+          "error",
+          "sync",
+          normalizeError(
+            error,
+            "Could not read the local contract. Make sure the Hardhat node is running and Election is deployed.",
+          ),
+        ),
       );
     } finally {
       setIsLoading(false);
     }
-  }, [walletState.account]);
+  }, []);
 
   useEffect(() => {
     refreshElectionState();
   }, [refreshElectionState]);
 
-  const closeCandidateDetails = useCallback(() => {
-    setIsDetailOpen(false);
+  useEffect(() => {
+    async function loadWalletState() {
+      if (!window.ethereum) {
+        setStatus(makeStatus("error", "error", "wallet", "MetaMask is not installed in this browser."));
+        return;
+      }
 
-    if (closeDetailTimeoutRef.current) {
-      clearTimeout(closeDetailTimeoutRef.current);
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const accounts = await window.ethereum.request({ method: "eth_accounts" });
+      const network = await provider.getNetwork();
+
+      setWalletState({
+        account: accounts[0] || "",
+        chainId: Number(network.chainId),
+      });
     }
 
-    closeDetailTimeoutRef.current = setTimeout(() => {
-      setActiveCandidateDetails(null);
-    }, DETAIL_ANIMATION_MS);
+    loadWalletState();
+
+    if (!window.ethereum) {
+      return undefined;
+    }
+
+    function handleAccountsChanged(accounts) {
+      setWalletState((currentState) => {
+        const nextAccount = accounts[0] || "";
+
+        if (currentState.account && nextAccount && currentState.account.toLowerCase() !== nextAccount.toLowerCase()) {
+          setPreviousAccount(currentState.account);
+          setStatus(
+            makeStatus(
+              "info",
+              "idle",
+              "wallet_switch",
+              `Wallet switched to ${shortenAddress(nextAccount)}. Role and access have been refreshed.`,
+            ),
+          );
+        }
+
+        if (!nextAccount && currentState.account) {
+          setPreviousAccount(currentState.account);
+          setStatus(
+            makeStatus(
+              "info",
+              "idle",
+              "wallet_disconnect",
+              "Wallet disconnected. Connect MetaMask to continue testing actions.",
+            ),
+          );
+        }
+
+        return {
+          ...currentState,
+          account: nextAccount,
+        };
+      });
+    }
+
+    function handleChainChanged(chainIdHex) {
+      const nextChainId = Number.parseInt(chainIdHex, 16);
+      setWalletState((currentState) => ({
+        ...currentState,
+        chainId: nextChainId,
+      }));
+
+      if (nextChainId !== LOCAL_ELECTION.chainId) {
+        setStatus(
+          makeStatus(
+            "error",
+            "error",
+            "network",
+            `Wrong network detected. Switch to ${LOCAL_ELECTION.chainName} (${LOCAL_ELECTION.chainId}).`,
+          ),
+        );
+      } else {
+        setStatus(
+          makeStatus(
+            "success",
+            "idle",
+            "network",
+            `${LOCAL_ELECTION.chainName} selected. Actions are available for your current role.`,
+          ),
+        );
+      }
+    }
+
+    window.ethereum.on("accountsChanged", handleAccountsChanged);
+    window.ethereum.on("chainChanged", handleChainChanged);
+
+    return () => {
+      window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
+      window.ethereum.removeListener("chainChanged", handleChainChanged);
+    };
   }, []);
 
   useEffect(() => {
@@ -286,7 +407,7 @@ function App() {
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [closeCandidateDetails]);
+  });
 
   useEffect(() => {
     const currentTimeouts = clickTimeoutsRef.current;
@@ -302,6 +423,29 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    refreshVoterRole(walletState.account, walletState.chainId);
+  }, [refreshVoterRole, walletState.account, walletState.chainId, electionState.admin]);
+
+  useEffect(() => {
+    if (!previousAccount || !walletState.account) {
+      return;
+    }
+
+    if (previousAccount.toLowerCase() === walletState.account.toLowerCase()) {
+      return;
+    }
+
+    setStatus(
+      makeStatus(
+        "info",
+        "idle",
+        "wallet_switch",
+        `Wallet switched from ${shortenAddress(previousAccount)} to ${shortenAddress(walletState.account)}.`,
+      ),
+    );
+  }, [previousAccount, walletState.account]);
+
   function getBrowserContract(signer) {
     return new ethers.Contract(
       LOCAL_ELECTION.contractAddress,
@@ -310,13 +454,106 @@ function App() {
     );
   }
 
+  function getRoleGuardError({ requiresAdmin = false, requiresRegisteredVoter = false, requiresVotingOpen = false }) {
+    if (!window.ethereum) {
+      return "MetaMask is required to run this action.";
+    }
+
+    if (!walletState.account) {
+      return "Connect MetaMask to continue.";
+    }
+
+    if (!isCorrectNetwork) {
+      return `Switch MetaMask to ${LOCAL_ELECTION.chainName} before continuing.`;
+    }
+
+    if (requiresAdmin && !isAdmin) {
+      return "This action is available only for the admin wallet.";
+    }
+
+    if (requiresRegisteredVoter && !isRegisteredVoter) {
+      return "This wallet is not registered as a voter.";
+    }
+
+    if (requiresVotingOpen && !electionState.votingOpen) {
+      return "Voting is currently closed.";
+    }
+
+    return "";
+  }
+
+  async function executeContractAction({
+    actionKey,
+    actionLabel,
+    pendingMessage,
+    successMessage,
+    contractCall,
+    postSuccess,
+    adminAction = false,
+  }) {
+    try {
+      if (adminAction) {
+        setIsSubmittingAdminAction(true);
+      } else {
+        setIsSubmittingVote(true);
+      }
+
+      const pendingStatus = makeStatus("info", "pending", actionKey, pendingMessage);
+      setStatus(pendingStatus);
+      updateActionStatus(actionKey, pendingStatus);
+
+      const browserProvider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await browserProvider.getSigner();
+      const contract = getBrowserContract(signer);
+
+      const tx = await contractCall(contract);
+      const submittedMessage = `${actionLabel} submitted. Waiting for confirmation (${shortenHash(tx.hash)}).`;
+      const submittedStatus = makeStatus("info", "pending", actionKey, submittedMessage, tx.hash);
+      setStatus(submittedStatus);
+      updateActionStatus(actionKey, submittedStatus);
+
+      await tx.wait();
+
+      const successStatus = makeStatus("success", "success", actionKey, successMessage, tx.hash);
+      setStatus(successStatus);
+      updateActionStatus(actionKey, successStatus);
+
+      if (postSuccess) {
+        postSuccess();
+      }
+
+      await refreshElectionState();
+      await refreshVoterRole(walletState.account, walletState.chainId);
+    } catch (error) {
+      const message = normalizeError(error, `${actionLabel} failed.`);
+      const errorStatus = makeStatus("error", "error", actionKey, message);
+      setStatus(errorStatus);
+      updateActionStatus(actionKey, errorStatus);
+    } finally {
+      if (adminAction) {
+        setIsSubmittingAdminAction(false);
+      } else {
+        setIsSubmittingVote(false);
+      }
+    }
+  }
+
   async function connectWallet() {
     if (!window.ethereum) {
-      setStatus("MetaMask is not installed in this browser.");
+      setStatus(makeStatus("error", "error", "connect", "MetaMask is not installed in this browser."));
       return;
     }
 
     try {
+      setStatus(
+        makeStatus(
+          "info",
+          "pending",
+          "connect",
+          `Requesting ${LOCAL_ELECTION.chainName} in MetaMask before connecting wallet...`,
+        ),
+      );
+
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: "0x7a69" }],
@@ -339,152 +576,125 @@ function App() {
           ],
         });
       } else {
-        setStatus(error.message || "Could not switch MetaMask to the local Hardhat network.");
+        setStatus(
+          makeStatus(
+            "error",
+            "error",
+            "connect",
+            normalizeError(error, "Could not switch MetaMask to the local Hardhat network."),
+          ),
+        );
         return;
       }
     }
 
-    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-    setWalletState({
-      account: accounts[0] || "",
-      chainId: LOCAL_ELECTION.chainId,
-    });
-    setStatus("Wallet connected. You can now send vote transactions from the UI.");
+    try {
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      setWalletState({
+        account: accounts[0] || "",
+        chainId: LOCAL_ELECTION.chainId,
+      });
+      setStatus(
+        makeStatus(
+          "success",
+          "success",
+          "connect",
+          "Wallet connected. Role visibility and action controls have been updated.",
+        ),
+      );
+    } catch (error) {
+      setStatus(makeStatus("error", "error", "connect", normalizeError(error, "Wallet connection failed.")));
+    }
   }
 
   async function voteForCandidate(candidateIndex) {
-    if (!window.ethereum) {
-      setStatus("MetaMask is required for voting.");
+    const guardError = getRoleGuardError({ requiresRegisteredVoter: true, requiresVotingOpen: true });
+
+    if (guardError) {
+      const feedback = makeStatus("error", "error", "vote", guardError);
+      setStatus(feedback);
+      updateActionStatus("vote", feedback);
       return;
     }
 
-    if (walletState.chainId !== LOCAL_ELECTION.chainId) {
-      setStatus("Switch MetaMask to Hardhat Localhost before voting.");
-      return;
-    }
-
-    try {
-      setIsSubmittingVote(true);
-      setStatus(`Submitting vote for candidate ${candidateIndex}...`);
-
-      const browserProvider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await browserProvider.getSigner();
-      const contract = getBrowserContract(signer);
-      await contract.vote.staticCall(candidateIndex);
-
-      const tx = await contract.vote(candidateIndex);
-      await tx.wait();
-
-      setStatus("Vote confirmed on-chain. Refreshing election state...");
-      await refreshElectionState();
-    } catch (error) {
-      setStatus(getReadableError(error, "Vote transaction failed. Check voter registration and voting status."));
-    } finally {
-      setIsSubmittingVote(false);
-    }
+    await executeContractAction({
+      actionKey: "vote",
+      actionLabel: "Vote transaction",
+      pendingMessage: `Submitting vote for candidate #${candidateIndex}...`,
+      successMessage: "Vote confirmed on-chain. Live results have been refreshed.",
+      contractCall: (contract) => contract.vote(candidateIndex),
+    });
   }
 
   async function registerVoterFromUi(event) {
     event.preventDefault();
 
-    if (!window.ethereum) {
-      setStatus("MetaMask is required for admin actions.");
+    const guardError = getRoleGuardError({ requiresAdmin: true });
+    if (guardError) {
+      const feedback = makeStatus("error", "error", "registerVoter", guardError);
+      setStatus(feedback);
+      updateActionStatus("registerVoter", feedback);
       return;
     }
 
-    if (walletState.chainId !== LOCAL_ELECTION.chainId) {
-      setStatus("Switch MetaMask to Hardhat Localhost before registering voters.");
+    const voterAddress = adminForm.voterAddress.trim();
+
+    if (!ethers.isAddress(voterAddress)) {
+      const feedback = makeStatus("error", "error", "registerVoter", "Enter a valid wallet address.");
+      setStatus(feedback);
+      updateActionStatus("registerVoter", feedback);
       return;
     }
 
-    try {
-      setIsSubmittingAdminAction(true);
-      setStatus(`Registering voter ${adminForm.voterAddress}...`);
-
-      const browserProvider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await browserProvider.getSigner();
-      const contract = getBrowserContract(signer);
-      await contract.registerVoter.staticCall(adminForm.voterAddress.trim());
-
-      const tx = await contract.registerVoter(adminForm.voterAddress.trim());
-      await tx.wait();
-
-      setAdminForm({ voterAddress: "" });
-      setStatus("Voter registered on-chain.");
-      await refreshElectionState();
-    } catch (error) {
-      setStatus(
-        getReadableError(error, "Register voter transaction failed. Check that the connected wallet is the admin."),
-      );
-    } finally {
-      setIsSubmittingAdminAction(false);
-    }
+    await executeContractAction({
+      actionKey: "registerVoter",
+      actionLabel: "Register voter",
+      pendingMessage: `Registering voter ${shortenAddress(voterAddress)}...`,
+      successMessage: "Voter registered on-chain.",
+      contractCall: (contract) => contract.registerVoter(voterAddress),
+      postSuccess: () => setAdminForm({ voterAddress: "" }),
+      adminAction: true,
+    });
   }
 
   async function openVotingFromUi() {
-    if (!window.ethereum) {
-      setStatus("MetaMask is required for admin actions.");
+    const guardError = getRoleGuardError({ requiresAdmin: true });
+
+    if (guardError) {
+      const feedback = makeStatus("error", "error", "openVoting", guardError);
+      setStatus(feedback);
+      updateActionStatus("openVoting", feedback);
       return;
     }
 
-    if (walletState.chainId !== LOCAL_ELECTION.chainId) {
-      setStatus("Switch MetaMask to Hardhat Localhost before opening voting.");
-      return;
-    }
-
-    try {
-      setIsSubmittingAdminAction(true);
-      setStatus("Opening voting on-chain...");
-
-      const browserProvider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await browserProvider.getSigner();
-      const contract = getBrowserContract(signer);
-      await contract.openVoting.staticCall();
-
-      const tx = await contract.openVoting();
-      await tx.wait();
-
-      setStatus("Voting opened on-chain.");
-      await refreshElectionState();
-    } catch (error) {
-      setStatus(getReadableError(error, "Open voting transaction failed. Check that the connected wallet is the admin."));
-    } finally {
-      setIsSubmittingAdminAction(false);
-    }
+    await executeContractAction({
+      actionKey: "openVoting",
+      actionLabel: "Open voting",
+      pendingMessage: "Opening voting on-chain...",
+      successMessage: "Voting is now open on-chain.",
+      contractCall: (contract) => contract.openVoting(),
+      adminAction: true,
+    });
   }
 
   async function closeVotingFromUi() {
-    if (!window.ethereum) {
-      setStatus("MetaMask is required for admin actions.");
+    const guardError = getRoleGuardError({ requiresAdmin: true });
+
+    if (guardError) {
+      const feedback = makeStatus("error", "error", "closeVoting", guardError);
+      setStatus(feedback);
+      updateActionStatus("closeVoting", feedback);
       return;
     }
 
-    if (walletState.chainId !== LOCAL_ELECTION.chainId) {
-      setStatus("Switch MetaMask to Hardhat Localhost before closing voting.");
-      return;
-    }
-
-    try {
-      setIsSubmittingAdminAction(true);
-      setStatus("Closing voting on-chain...");
-
-      const browserProvider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await browserProvider.getSigner();
-      const contract = getBrowserContract(signer);
-      await contract.closeVoting.staticCall();
-
-      const tx = await contract.closeVoting();
-      await tx.wait();
-
-      setStatus("Voting closed on-chain.");
-      await refreshElectionState();
-    } catch (error) {
-      setStatus(
-        getReadableError(error, "Close voting transaction failed. Check that the connected wallet is the admin."),
-      );
-    } finally {
-      setIsSubmittingAdminAction(false);
-    }
+    await executeContractAction({
+      actionKey: "closeVoting",
+      actionLabel: "Close voting",
+      pendingMessage: "Closing voting on-chain...",
+      successMessage: "Voting is now closed on-chain.",
+      contractCall: (contract) => contract.closeVoting(),
+      adminAction: true,
+    });
   }
 
   const candidateMetrics = useMemo(() => {
@@ -528,6 +738,78 @@ function App() {
 
     return candidateMetrics.candidates;
   }, [candidateMetrics.candidates, isLoading]);
+
+  function getVoteDisabledReason(candidate) {
+    if (candidate.isSample) {
+      return "Connect wallet and deploy local contract data to vote from this card.";
+    }
+
+    if (isSubmittingVote) {
+      return "A vote transaction is already pending.";
+    }
+
+    if (!walletState.account) {
+      return "Connect MetaMask to vote.";
+    }
+
+    if (!isCorrectNetwork) {
+      return `Switch to ${LOCAL_ELECTION.chainName} before voting.`;
+    }
+
+    if (!electionState.votingOpen) {
+      return "Voting is closed. Wait for admin to open voting.";
+    }
+
+    if (!isRegisteredVoter) {
+      return "This wallet is viewer-only. Ask admin to register it as voter.";
+    }
+
+    return "";
+  }
+
+  const registerDisabledReason = useMemo(() => {
+    if (isSubmittingAdminAction) {
+      return "An admin transaction is already pending.";
+    }
+
+    if (!walletState.account) {
+      return "Connect MetaMask to access admin actions.";
+    }
+
+    if (!isCorrectNetwork) {
+      return `Switch to ${LOCAL_ELECTION.chainName} to use admin controls.`;
+    }
+
+    if (!isAdmin) {
+      return "Admin only: switch to the deployer wallet.";
+    }
+
+    return "";
+  }, [isAdmin, isCorrectNetwork, isSubmittingAdminAction, walletState.account]);
+
+  const openVotingDisabledReason = useMemo(() => {
+    if (registerDisabledReason) {
+      return registerDisabledReason;
+    }
+
+    if (electionState.votingOpen) {
+      return "Voting is already open.";
+    }
+
+    return "";
+  }, [electionState.votingOpen, registerDisabledReason]);
+
+  const closeVotingDisabledReason = useMemo(() => {
+    if (registerDisabledReason) {
+      return registerDisabledReason;
+    }
+
+    if (!electionState.votingOpen) {
+      return "Voting is already closed.";
+    }
+
+    return "";
+  }, [electionState.votingOpen, registerDisabledReason]);
 
   function handleCardClick(candidateId) {
     const existingTimer = clickTimeoutsRef.current[candidateId];
@@ -575,31 +857,17 @@ function App() {
     });
   }
 
-  const isCorrectNetwork = walletState.chainId === LOCAL_ELECTION.chainId;
-  const isAdmin =
-    walletState.account &&
-    electionState.admin &&
-    walletState.account.toLowerCase() === electionState.admin.toLowerCase();
+  function closeCandidateDetails() {
+    setIsDetailOpen(false);
 
-  const contextStatusTone = useMemo(() => {
-    const text = status.toLowerCase();
-
-    if (
-      text.includes("failed") ||
-      text.includes("could not") ||
-      text.includes("wrong network") ||
-      text.includes("not installed") ||
-      text.includes("required")
-    ) {
-      return "error";
+    if (closeDetailTimeoutRef.current) {
+      clearTimeout(closeDetailTimeoutRef.current);
     }
 
-    if (walletState.account && isCorrectNetwork) {
-      return "success";
-    }
-
-    return "neutral";
-  }, [status, walletState.account, isCorrectNetwork]);
+    closeDetailTimeoutRef.current = setTimeout(() => {
+      setActiveCandidateDetails(null);
+    }, DETAIL_ANIMATION_MS);
+  }
 
   return (
     <div className="app-shell">
@@ -639,52 +907,35 @@ function App() {
           </button>
         </div>
 
-        <div className="status-panel">
-          <div className="status-row">
-            <span>Network</span>
-            <strong>{LOCAL_ELECTION.chainName}</strong>
-          </div>
-          <div className="status-row">
-            <span>Contract</span>
-            <strong>{shortenAddress(LOCAL_ELECTION.contractAddress)}</strong>
-          </div>
-          <div className="status-row">
-            <span>Admin</span>
-            <strong>{electionState.admin ? shortenAddress(electionState.admin) : "Loading..."}</strong>
-          </div>
-          <div className="status-row">
-            <span>Status</span>
-            <strong>{electionState.votingOpen ? "Voting Open" : "Voting Closed"}</strong>
-          </div>
-          <div className="status-row">
-            <span>Wallet</span>
-            <strong>{walletState.account ? shortenAddress(walletState.account) : "Not connected"}</strong>
-          </div>
-          <div className="status-row">
-            <span>Role</span>
-            <strong>
-              {walletState.account
-                ? isAdmin
-                  ? "Admin"
-                  : walletInsights.isRegistered
-                    ? "Registered voter"
-                    : "Viewer"
-                : "Disconnected"}
-            </strong>
-          </div>
-          <button className="primary-button" onClick={connectWallet} type="button">
-            {walletState.account ? "Reconnect MetaMask" : "Connect MetaMask"}
-          </button>
-          {walletState.account && !isCorrectNetwork && (
-            <p className="warning-text">MetaMask is connected to the wrong network. Switch to Hardhat Localhost.</p>
-          )}
-          <p className="status-copy">{status}</p>
+        <div className="status-row">
+          <span>Network</span>
+          <strong>{LOCAL_ELECTION.chainName}</strong>
+        </div>
+        <div className="status-row">
+          <span>Contract</span>
+          <strong>{shortenAddress(LOCAL_ELECTION.contractAddress)}</strong>
+        </div>
+        <div className="status-row">
+          <span>Admin</span>
+          <strong>{electionState.admin ? shortenAddress(electionState.admin) : "Loading..."}</strong>
+        </div>
+        <div className="status-row">
+          <span>Wallet</span>
+          <strong>{walletState.account ? shortenAddress(walletState.account) : "Not connected"}</strong>
+        </div>
+        <div className="status-row">
+          <span>Role</span>
+          <strong>{roleState.label}</strong>
+        </div>
+        <div className="status-row">
+          <span>Voting</span>
+          <strong>{electionState.votingOpen ? "Open" : "Closed"}</strong>
         </div>
 
         <button className="primary-button context-connect" onClick={connectWallet} type="button">
           {walletState.account ? "Reconnect MetaMask" : "Connect MetaMask"}
         </button>
-        <p className={`context-status ${contextStatusTone}`}>{status}</p>
+        <p className={`context-status ${status.type}`}>{status.message}</p>
       </aside>
 
       <header className="page-header">
@@ -696,6 +947,30 @@ function App() {
       </header>
 
       <main className="page-flow">
+        <section className="panel role-banner" aria-label="Wallet role and network status">
+          <div className="role-banner-head">
+            <p className="panel-label">Testing status</p>
+            <span className={`role-chip role-${roleState.key}`}>{roleState.label}</span>
+          </div>
+          <div className="role-banner-grid">
+            <div>
+              <p className="subsection-label">Wallet</p>
+              <p>{walletState.account ? shortenAddress(walletState.account) : "Not connected"}</p>
+              {previousAccount && walletState.account && previousAccount !== walletState.account && (
+                <p className="helper-text">Previous wallet: {shortenAddress(previousAccount)}</p>
+              )}
+            </div>
+            <div>
+              <p className="subsection-label">Network</p>
+              <p>{networkLabel}</p>
+            </div>
+            <div>
+              <p className="subsection-label">Role resolution</p>
+              <p>{isResolvingRole ? "Checking voter registration..." : roleGuidance}</p>
+            </div>
+          </div>
+        </section>
+
         <section className="panel live-panel">
           <div className="live-subsection live-subsection-intro">
             <div className="panel-header">
@@ -703,104 +978,110 @@ function App() {
                 <p className="panel-label">Live election</p>
                 <h2>{electionState.electionName || "Loading election..."}</h2>
               </div>
-              <p className="panel-subtext">Real-time values are read directly from the deployed smart contract.</p>
+              <div className="panel-header-meta">
+                <p className="panel-subtext">Real-time values are read directly from the deployed smart contract.</p>
+                <span className={`role-chip role-${roleState.key}`}>Current role: {roleState.label}</span>
+              </div>
             </div>
           </div>
 
-          <div className="poll-meta">
-            <span>Candidates: {electionState.candidateCount}</span>
-            <span>RPC: {LOCAL_ELECTION.rpcUrl}</span>
-            <span>Chain ID: {LOCAL_ELECTION.chainId}</span>
+          <div className="live-subsection live-subsection-meta">
+            <p className="subsection-label">Election overview metadata</p>
+            <div className="poll-meta">
+              <span>Candidates: {electionState.candidateCount}</span>
+              <span>Total votes: {candidateMetrics.totalVotes}</span>
+              <span>Chain ID: {LOCAL_ELECTION.chainId}</span>
+            </div>
           </div>
 
-          <div className="poll-meta">
-            <span>Registered: {walletInsights.isRegistered ? "Yes" : "No"}</span>
-            <span>Already voted: {walletInsights.hasVoted ? "Yes" : "No"}</span>
-            <span>Connected wallet: {walletState.account ? shortenAddress(walletState.account) : "None"}</span>
-          </div>
+          <div className="live-subsection live-subsection-list">
+            <div className="candidate-head">
+              <p className="subsection-label">Candidate list</p>
+              <span className={electionState.votingOpen ? "badge badge-live" : "badge"}>
+                {electionState.votingOpen ? "Voting is live" : "Voting is closed"}
+              </span>
+            </div>
 
-          <div className="poll-list">
-            {cardsToRender.map((candidate) => {
-              const isFlipped = Boolean(flippedCards[candidate.id]);
+            <div className="poll-list">
+              {cardsToRender.map((candidate) => {
+                const isFlipped = Boolean(flippedCards[candidate.id]);
+                const voteDisabledReason = getVoteDisabledReason(candidate);
 
-              return (
-                <article
-                  className={`poll-card interactive-card ${candidate.isLeading ? "poll-card-leading" : ""} ${
-                    candidate.isSample ? "poll-card-sample" : ""
-                  } ${isFlipped ? "flipped" : ""}`}
-                  key={candidate.id}
-                  onClick={() => handleCardClick(candidate.id)}
-                  onDoubleClick={(event) => handleCardDoubleClick(candidate, event)}
-                >
-                  <div className="poll-card-inner">
-                    <div className="poll-card-face poll-card-front">
-                      <div className="poll-card-header">
-                        <div>
-                          <h3>{candidate.name}</h3>
-                          <div className="poll-card-meta-row">
-                            <span className="poll-id">Rank #{candidate.rank}</span>
-                            <span className="meta-divider" />
-                            <span className="poll-id">{candidate.profile.party}</span>
+                return (
+                  <article
+                    className={`poll-card interactive-card ${candidate.isLeading ? "poll-card-leading" : ""} ${
+                      candidate.isSample ? "poll-card-sample" : ""
+                    } ${isFlipped ? "flipped" : ""}`}
+                    key={candidate.id}
+                    onClick={() => handleCardClick(candidate.id)}
+                    onDoubleClick={(event) => handleCardDoubleClick(candidate, event)}
+                  >
+                    <div className="poll-card-inner">
+                      <div className="poll-card-face poll-card-front">
+                        <div className="poll-card-header">
+                          <div>
+                            <h3>{candidate.name}</h3>
+                            <div className="poll-card-meta-row">
+                              <span className="poll-id">Rank #{candidate.rank}</span>
+                              <span className="meta-divider" />
+                              <span className="poll-id">{candidate.profile.party}</span>
+                            </div>
                           </div>
+                          <span className={candidate.isLeading ? "badge badge-live" : "badge"}>
+                            {candidate.voteCount} vote{candidate.voteCount === 1 ? "" : "s"}
+                          </span>
                         </div>
-                        <span className={candidate.isLeading ? "badge badge-live" : "badge"}>
-                          {candidate.voteCount} vote{candidate.voteCount === 1 ? "" : "s"}
-                        </span>
+
+                        <p className="poll-face-note">Click to flip for voter details, double-click for full profile.</p>
+
+                        <div className="poll-card-footer">
+                          {candidate.isSample ? (
+                            <button className="option-button" disabled type="button">
+                              <span>Connect and deploy to vote</span>
+                              <strong>Send transaction</strong>
+                            </button>
+                          ) : (
+                            <button
+                              className="option-button"
+                              disabled={Boolean(voteDisabledReason)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                voteForCandidate(candidate.index);
+                              }}
+                              type="button"
+                            >
+                              <span>Vote for {candidate.name}</span>
+                              <strong>{isSubmittingVote ? "Submitting..." : "Send transaction"}</strong>
+                            </button>
+                          )}
+                          {voteDisabledReason && <p className="button-helper">{voteDisabledReason}</p>}
+                        </div>
                       </div>
 
-                      <p className="poll-face-note">Click to flip for voter details, double-click for full profile.</p>
-
-                      <div className="poll-card-footer">
-                        {candidate.isSample ? (
-                          <button className="option-button" disabled type="button">
-                            <span>Connect and deploy to vote</span>
-                            <strong>Send transaction</strong>
-                          </button>
-                        ) : (
-                          <button
-                            className="option-button"
-                            disabled={
-                              !walletState.account ||
-                              !electionState.votingOpen ||
-                              !isCorrectNetwork ||
-                              isSubmittingVote ||
-                              walletInsights.hasVoted
-                            }
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              voteForCandidate(candidate.index);
-                            }}
-                            type="button"
-                          >
-                            <span>Vote for {candidate.name}</span>
-                            <strong>{isSubmittingVote ? "Submitting..." : "Send transaction"}</strong>
-                          </button>
-                        )}
+                      <div className="poll-card-face poll-card-back">
+                        <p className="subsection-label">Voter details</p>
+                        <div className="candidate-back-grid">
+                          <p>
+                            <strong>Party:</strong> {candidate.profile.party}
+                          </p>
+                          <p>
+                            <strong>Symbol:</strong> {candidate.profile.symbol}
+                          </p>
+                          <p>
+                            <strong>Constituency:</strong> {candidate.profile.constituency}
+                          </p>
+                          <p>
+                            <strong>Key promise:</strong> {candidate.profile.keyPromise}
+                          </p>
+                        </div>
+                        <p className="poll-face-note">Click again to return. Double-click for full details.</p>
                       </div>
                     </div>
-
-                    <div className="poll-card-face poll-card-back">
-                      <p className="subsection-label">Voter details</p>
-                      <div className="candidate-back-grid">
-                        <p>
-                          <strong>Party:</strong> {candidate.profile.party}
-                        </p>
-                        <p>
-                          <strong>Symbol:</strong> {candidate.profile.symbol}
-                        </p>
-                        <p>
-                          <strong>Constituency:</strong> {candidate.profile.constituency}
-                        </p>
-                        <p>
-                          <strong>Key promise:</strong> {candidate.profile.keyPromise}
-                        </p>
-                      </div>
-                      <p className="poll-face-note">Click again to return. Double-click for full details.</p>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+                  </article>
+                );
+              })}
+            </div>
+            {renderStatusLine(actionStatus.vote)}
           </div>
         </section>
 
@@ -810,6 +1091,7 @@ function App() {
               <p className="panel-label">Admin controls</p>
               <h2>Run the election lifecycle</h2>
             </div>
+            <span className={`role-chip role-${roleState.key}`}>Current role: {roleState.label}</span>
           </div>
 
           <div className="admin-section">
@@ -826,40 +1108,43 @@ function App() {
                 />
               </label>
               <p className="helper-text">Use a valid wallet address on the local Hardhat network.</p>
-              <button
-                className="primary-button form-submit"
-                disabled={!isAdmin || !isCorrectNetwork || isSubmittingAdminAction}
-                type="submit"
-              >
+              <button className="primary-button form-submit" disabled={Boolean(registerDisabledReason)} type="submit">
                 Register voter
               </button>
+              {registerDisabledReason && <p className="button-helper">{registerDisabledReason}</p>}
             </form>
+            {renderStatusLine(actionStatus.registerVoter)}
           </div>
 
           <div className="admin-section">
             <p className="subsection-label">Admin actions</p>
             <div className="admin-action-row">
-              <button
-                className="secondary-button"
-                disabled={!isAdmin || !isCorrectNetwork || electionState.votingOpen || isSubmittingAdminAction}
-                onClick={openVotingFromUi}
-                type="button"
-              >
-                Open voting
-              </button>
+              <div>
+                <button
+                  className="secondary-button"
+                  disabled={Boolean(openVotingDisabledReason)}
+                  onClick={openVotingFromUi}
+                  type="button"
+                >
+                  Open voting
+                </button>
+                {openVotingDisabledReason && <p className="button-helper">{openVotingDisabledReason}</p>}
+                {renderStatusLine(actionStatus.openVoting, "inline-compact")}
+              </div>
 
-              <button
-                className="secondary-button"
-                disabled={!isAdmin || !isCorrectNetwork || !electionState.votingOpen || isSubmittingAdminAction}
-                onClick={closeVotingFromUi}
-                type="button"
-              >
-                Close voting
-              </button>
+              <div>
+                <button
+                  className="secondary-button"
+                  disabled={Boolean(closeVotingDisabledReason)}
+                  onClick={closeVotingFromUi}
+                  type="button"
+                >
+                  Close voting
+                </button>
+                {closeVotingDisabledReason && <p className="button-helper">{closeVotingDisabledReason}</p>}
+                {renderStatusLine(actionStatus.closeVoting, "inline-compact")}
+              </div>
             </div>
-            {!isAdmin && (
-              <p className="helper-text">Connect as the admin wallet to use registration and open/close controls.</p>
-            )}
           </div>
 
           <div className="rule-list rule-list-muted top-gap">
@@ -878,7 +1163,10 @@ function App() {
       </main>
 
       {activeCandidateDetails && (
-        <div className={`candidate-modal-overlay ${isDetailOpen ? "open" : ""}`} onClick={closeCandidateDetails}>
+        <div
+          className={`candidate-modal-overlay ${isDetailOpen ? "open" : ""}`}
+          onClick={closeCandidateDetails}
+        >
           <div
             className={`candidate-modal ${isDetailOpen ? "open" : ""}`}
             onClick={(event) => event.stopPropagation()}

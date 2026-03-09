@@ -26,3 +26,7 @@ The previous smart contract, deployment, and wallet integration code has been re
 - no blind copy-paste
 - no feature jumps before concepts are clear
 - the repo should remain understandable end to end
+
+## Frontend Testing Checklist
+
+- Manual wallet/role/transaction clarity checklist: `docs/frontend-manual-test-checklist.md`
