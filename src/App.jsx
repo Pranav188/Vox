@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ethers } from "ethers";
 import "./App.css";
 import { LOCAL_ELECTION, getReadOnlyElectionContract } from "./lib/election";
@@ -76,6 +76,48 @@ function shortenAddress(address) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
+function getReadableError(error, fallbackMessage) {
+  const rawMessage = error?.shortMessage || error?.reason || error?.message || fallbackMessage;
+
+  if (rawMessage.includes("Only admin can register voters")) {
+    return "Only the admin wallet can register voters.";
+  }
+
+  if (rawMessage.includes("Only admin can open voting")) {
+    return "Only the admin wallet can open voting.";
+  }
+
+  if (rawMessage.includes("Only admin can close voting")) {
+    return "Only the admin wallet can close voting.";
+  }
+
+  if (rawMessage.includes("Voting is closed")) {
+    return "Voting is currently closed.";
+  }
+
+  if (rawMessage.includes("You are not a registered voter")) {
+    return "This wallet is not registered to vote.";
+  }
+
+  if (rawMessage.includes("You have already voted")) {
+    return "This wallet has already cast its vote.";
+  }
+
+  if (rawMessage.includes("Invalid candidate index")) {
+    return "That candidate selection is invalid.";
+  }
+
+  if (rawMessage.includes("user rejected") || rawMessage.includes("User denied")) {
+    return "The transaction was rejected in MetaMask.";
+  }
+
+  if (rawMessage.includes("missing revert data")) {
+    return fallbackMessage;
+  }
+
+  return rawMessage;
+}
+
 function getFallbackProfile(index, name) {
   const pick = index % fallbackParties.length;
 
@@ -101,6 +143,10 @@ function App() {
     candidateCount: 0,
     candidates: [],
   });
+  const [walletInsights, setWalletInsights] = useState({
+    isRegistered: false,
+    hasVoted: false,
+  });
   const [status, setStatus] = useState("Connecting to the local blockchain...");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
@@ -113,12 +159,9 @@ function App() {
   const [activeCandidateDetails, setActiveCandidateDetails] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [detailMotion, setDetailMotion] = useState({ dx: 0, dy: 0, sx: 1, sy: 1 });
+
   const clickTimeoutsRef = useRef({});
   const closeDetailTimeoutRef = useRef(null);
-
-  useEffect(() => {
-    refreshElectionState();
-  }, []);
 
   useEffect(() => {
     async function loadWalletState() {
@@ -165,35 +208,7 @@ function App() {
     };
   }, []);
 
-  useEffect(() => {
-    function handleEscape(event) {
-      if (event.key === "Escape") {
-        setIsContextOpen(false);
-        closeCandidateDetails();
-      }
-    }
-
-    window.addEventListener("keydown", handleEscape);
-    return () => {
-      window.removeEventListener("keydown", handleEscape);
-    };
-  });
-
-  useEffect(() => {
-    const currentTimeouts = clickTimeoutsRef.current;
-
-    return () => {
-      Object.values(currentTimeouts).forEach((timeoutId) => {
-        clearTimeout(timeoutId);
-      });
-
-      if (closeDetailTimeoutRef.current) {
-        clearTimeout(closeDetailTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  async function refreshElectionState() {
+  const refreshElectionState = useCallback(async () => {
     setIsLoading(true);
 
     try {
@@ -213,6 +228,10 @@ function App() {
         });
       }
 
+      const activeAccount = walletState.account;
+      const isRegistered = activeAccount ? await contract.isRegisteredVoter(activeAccount) : false;
+      const hasVoted = activeAccount ? await contract.hasVoted(activeAccount) : false;
+
       setElectionState({
         electionName,
         admin,
@@ -220,16 +239,68 @@ function App() {
         candidateCount,
         candidates,
       });
+      setWalletInsights({
+        isRegistered,
+        hasVoted,
+      });
       setStatus("Read-only frontend is connected to the deployed Election contract.");
     } catch (error) {
+      setWalletInsights({
+        isRegistered: false,
+        hasVoted: false,
+      });
       setStatus(
-        error.message ||
+        error?.message ||
           "Could not read the local contract. Make sure the Hardhat node is running and Election is deployed.",
       );
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [walletState.account]);
+
+  useEffect(() => {
+    refreshElectionState();
+  }, [refreshElectionState]);
+
+  const closeCandidateDetails = useCallback(() => {
+    setIsDetailOpen(false);
+
+    if (closeDetailTimeoutRef.current) {
+      clearTimeout(closeDetailTimeoutRef.current);
+    }
+
+    closeDetailTimeoutRef.current = setTimeout(() => {
+      setActiveCandidateDetails(null);
+    }, DETAIL_ANIMATION_MS);
+  }, []);
+
+  useEffect(() => {
+    function handleEscape(event) {
+      if (event.key === "Escape") {
+        setIsContextOpen(false);
+        closeCandidateDetails();
+      }
+    }
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [closeCandidateDetails]);
+
+  useEffect(() => {
+    const currentTimeouts = clickTimeoutsRef.current;
+
+    return () => {
+      Object.values(currentTimeouts).forEach((timeoutId) => {
+        clearTimeout(timeoutId);
+      });
+
+      if (closeDetailTimeoutRef.current) {
+        clearTimeout(closeDetailTimeoutRef.current);
+      }
+    };
+  }, []);
 
   function getBrowserContract(signer) {
     return new ethers.Contract(
@@ -299,6 +370,7 @@ function App() {
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const signer = await browserProvider.getSigner();
       const contract = getBrowserContract(signer);
+      await contract.vote.staticCall(candidateIndex);
 
       const tx = await contract.vote(candidateIndex);
       await tx.wait();
@@ -306,7 +378,7 @@ function App() {
       setStatus("Vote confirmed on-chain. Refreshing election state...");
       await refreshElectionState();
     } catch (error) {
-      setStatus(error.shortMessage || error.message || "Vote transaction failed.");
+      setStatus(getReadableError(error, "Vote transaction failed. Check voter registration and voting status."));
     } finally {
       setIsSubmittingVote(false);
     }
@@ -332,6 +404,7 @@ function App() {
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const signer = await browserProvider.getSigner();
       const contract = getBrowserContract(signer);
+      await contract.registerVoter.staticCall(adminForm.voterAddress.trim());
 
       const tx = await contract.registerVoter(adminForm.voterAddress.trim());
       await tx.wait();
@@ -340,7 +413,9 @@ function App() {
       setStatus("Voter registered on-chain.");
       await refreshElectionState();
     } catch (error) {
-      setStatus(error.shortMessage || error.message || "Register voter transaction failed.");
+      setStatus(
+        getReadableError(error, "Register voter transaction failed. Check that the connected wallet is the admin."),
+      );
     } finally {
       setIsSubmittingAdminAction(false);
     }
@@ -364,6 +439,7 @@ function App() {
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const signer = await browserProvider.getSigner();
       const contract = getBrowserContract(signer);
+      await contract.openVoting.staticCall();
 
       const tx = await contract.openVoting();
       await tx.wait();
@@ -371,7 +447,7 @@ function App() {
       setStatus("Voting opened on-chain.");
       await refreshElectionState();
     } catch (error) {
-      setStatus(error.shortMessage || error.message || "Open voting transaction failed.");
+      setStatus(getReadableError(error, "Open voting transaction failed. Check that the connected wallet is the admin."));
     } finally {
       setIsSubmittingAdminAction(false);
     }
@@ -395,6 +471,7 @@ function App() {
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const signer = await browserProvider.getSigner();
       const contract = getBrowserContract(signer);
+      await contract.closeVoting.staticCall();
 
       const tx = await contract.closeVoting();
       await tx.wait();
@@ -402,7 +479,9 @@ function App() {
       setStatus("Voting closed on-chain.");
       await refreshElectionState();
     } catch (error) {
-      setStatus(error.shortMessage || error.message || "Close voting transaction failed.");
+      setStatus(
+        getReadableError(error, "Close voting transaction failed. Check that the connected wallet is the admin."),
+      );
     } finally {
       setIsSubmittingAdminAction(false);
     }
@@ -496,18 +575,6 @@ function App() {
     });
   }
 
-  function closeCandidateDetails() {
-    setIsDetailOpen(false);
-
-    if (closeDetailTimeoutRef.current) {
-      clearTimeout(closeDetailTimeoutRef.current);
-    }
-
-    closeDetailTimeoutRef.current = setTimeout(() => {
-      setActiveCandidateDetails(null);
-    }, DETAIL_ANIMATION_MS);
-  }
-
   const isCorrectNetwork = walletState.chainId === LOCAL_ELECTION.chainId;
   const isAdmin =
     walletState.account &&
@@ -572,25 +639,46 @@ function App() {
           </button>
         </div>
 
-        <div className="status-row">
-          <span>Network</span>
-          <strong>{LOCAL_ELECTION.chainName}</strong>
-        </div>
-        <div className="status-row">
-          <span>Contract</span>
-          <strong>{shortenAddress(LOCAL_ELECTION.contractAddress)}</strong>
-        </div>
-        <div className="status-row">
-          <span>Admin</span>
-          <strong>{electionState.admin ? shortenAddress(electionState.admin) : "Loading..."}</strong>
-        </div>
-        <div className="status-row">
-          <span>Wallet</span>
-          <strong>{walletState.account ? shortenAddress(walletState.account) : "Not connected"}</strong>
-        </div>
-        <div className="status-row">
-          <span>Voting</span>
-          <strong>{electionState.votingOpen ? "Open" : "Closed"}</strong>
+        <div className="status-panel">
+          <div className="status-row">
+            <span>Network</span>
+            <strong>{LOCAL_ELECTION.chainName}</strong>
+          </div>
+          <div className="status-row">
+            <span>Contract</span>
+            <strong>{shortenAddress(LOCAL_ELECTION.contractAddress)}</strong>
+          </div>
+          <div className="status-row">
+            <span>Admin</span>
+            <strong>{electionState.admin ? shortenAddress(electionState.admin) : "Loading..."}</strong>
+          </div>
+          <div className="status-row">
+            <span>Status</span>
+            <strong>{electionState.votingOpen ? "Voting Open" : "Voting Closed"}</strong>
+          </div>
+          <div className="status-row">
+            <span>Wallet</span>
+            <strong>{walletState.account ? shortenAddress(walletState.account) : "Not connected"}</strong>
+          </div>
+          <div className="status-row">
+            <span>Role</span>
+            <strong>
+              {walletState.account
+                ? isAdmin
+                  ? "Admin"
+                  : walletInsights.isRegistered
+                    ? "Registered voter"
+                    : "Viewer"
+                : "Disconnected"}
+            </strong>
+          </div>
+          <button className="primary-button" onClick={connectWallet} type="button">
+            {walletState.account ? "Reconnect MetaMask" : "Connect MetaMask"}
+          </button>
+          {walletState.account && !isCorrectNetwork && (
+            <p className="warning-text">MetaMask is connected to the wrong network. Switch to Hardhat Localhost.</p>
+          )}
+          <p className="status-copy">{status}</p>
         </div>
 
         <button className="primary-button context-connect" onClick={connectWallet} type="button">
@@ -619,105 +707,100 @@ function App() {
             </div>
           </div>
 
-          <div className="live-subsection live-subsection-meta">
-            <p className="subsection-label">Election overview metadata</p>
-            <div className="poll-meta">
-              <span>Candidates: {electionState.candidateCount}</span>
-              <span>Total votes: {candidateMetrics.totalVotes}</span>
-              <span>Chain ID: {LOCAL_ELECTION.chainId}</span>
-            </div>
+          <div className="poll-meta">
+            <span>Candidates: {electionState.candidateCount}</span>
+            <span>RPC: {LOCAL_ELECTION.rpcUrl}</span>
+            <span>Chain ID: {LOCAL_ELECTION.chainId}</span>
           </div>
 
-          <div className="live-subsection live-subsection-list">
-            <div className="candidate-head">
-              <p className="subsection-label">Candidate list</p>
-              <span className={electionState.votingOpen ? "badge badge-live" : "badge"}>
-                {electionState.votingOpen ? "Voting is live" : "Voting is closed"}
-              </span>
-            </div>
+          <div className="poll-meta">
+            <span>Registered: {walletInsights.isRegistered ? "Yes" : "No"}</span>
+            <span>Already voted: {walletInsights.hasVoted ? "Yes" : "No"}</span>
+            <span>Connected wallet: {walletState.account ? shortenAddress(walletState.account) : "None"}</span>
+          </div>
 
-            <div className="poll-list">
-              {cardsToRender.map((candidate) => {
-                const isFlipped = Boolean(flippedCards[candidate.id]);
+          <div className="poll-list">
+            {cardsToRender.map((candidate) => {
+              const isFlipped = Boolean(flippedCards[candidate.id]);
 
-                return (
-                  <article
-                    className={`poll-card interactive-card ${candidate.isLeading ? "poll-card-leading" : ""} ${
-                      candidate.isSample ? "poll-card-sample" : ""
-                    } ${isFlipped ? "flipped" : ""}`}
-                    key={candidate.id}
-                    onClick={() => handleCardClick(candidate.id)}
-                    onDoubleClick={(event) => handleCardDoubleClick(candidate, event)}
-                  >
-                    <div className="poll-card-inner">
-                      <div className="poll-card-face poll-card-front">
-                        <div className="poll-card-header">
-                          <div>
-                            <h3>{candidate.name}</h3>
-                            <div className="poll-card-meta-row">
-                              <span className="poll-id">Rank #{candidate.rank}</span>
-                              <span className="meta-divider" />
-                              <span className="poll-id">{candidate.profile.party}</span>
-                            </div>
+              return (
+                <article
+                  className={`poll-card interactive-card ${candidate.isLeading ? "poll-card-leading" : ""} ${
+                    candidate.isSample ? "poll-card-sample" : ""
+                  } ${isFlipped ? "flipped" : ""}`}
+                  key={candidate.id}
+                  onClick={() => handleCardClick(candidate.id)}
+                  onDoubleClick={(event) => handleCardDoubleClick(candidate, event)}
+                >
+                  <div className="poll-card-inner">
+                    <div className="poll-card-face poll-card-front">
+                      <div className="poll-card-header">
+                        <div>
+                          <h3>{candidate.name}</h3>
+                          <div className="poll-card-meta-row">
+                            <span className="poll-id">Rank #{candidate.rank}</span>
+                            <span className="meta-divider" />
+                            <span className="poll-id">{candidate.profile.party}</span>
                           </div>
-                          <span className={candidate.isLeading ? "badge badge-live" : "badge"}>
-                            {candidate.voteCount} vote{candidate.voteCount === 1 ? "" : "s"}
-                          </span>
                         </div>
-
-                        <p className="poll-face-note">Click to flip for voter details, double-click for full profile.</p>
-
-                        <div className="poll-card-footer">
-                          {candidate.isSample ? (
-                            <button className="option-button" disabled type="button">
-                              <span>Connect and deploy to vote</span>
-                              <strong>Send transaction</strong>
-                            </button>
-                          ) : (
-                            <button
-                              className="option-button"
-                              disabled={
-                                !walletState.account ||
-                                !electionState.votingOpen ||
-                                !isCorrectNetwork ||
-                                isSubmittingVote
-                              }
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                voteForCandidate(candidate.index);
-                              }}
-                              type="button"
-                            >
-                              <span>Vote for {candidate.name}</span>
-                              <strong>{isSubmittingVote ? "Submitting..." : "Send transaction"}</strong>
-                            </button>
-                          )}
-                        </div>
+                        <span className={candidate.isLeading ? "badge badge-live" : "badge"}>
+                          {candidate.voteCount} vote{candidate.voteCount === 1 ? "" : "s"}
+                        </span>
                       </div>
 
-                      <div className="poll-card-face poll-card-back">
-                        <p className="subsection-label">Voter details</p>
-                        <div className="candidate-back-grid">
-                          <p>
-                            <strong>Party:</strong> {candidate.profile.party}
-                          </p>
-                          <p>
-                            <strong>Symbol:</strong> {candidate.profile.symbol}
-                          </p>
-                          <p>
-                            <strong>Constituency:</strong> {candidate.profile.constituency}
-                          </p>
-                          <p>
-                            <strong>Key promise:</strong> {candidate.profile.keyPromise}
-                          </p>
-                        </div>
-                        <p className="poll-face-note">Click again to return. Double-click for full details.</p>
+                      <p className="poll-face-note">Click to flip for voter details, double-click for full profile.</p>
+
+                      <div className="poll-card-footer">
+                        {candidate.isSample ? (
+                          <button className="option-button" disabled type="button">
+                            <span>Connect and deploy to vote</span>
+                            <strong>Send transaction</strong>
+                          </button>
+                        ) : (
+                          <button
+                            className="option-button"
+                            disabled={
+                              !walletState.account ||
+                              !electionState.votingOpen ||
+                              !isCorrectNetwork ||
+                              isSubmittingVote ||
+                              walletInsights.hasVoted
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              voteForCandidate(candidate.index);
+                            }}
+                            type="button"
+                          >
+                            <span>Vote for {candidate.name}</span>
+                            <strong>{isSubmittingVote ? "Submitting..." : "Send transaction"}</strong>
+                          </button>
+                        )}
                       </div>
                     </div>
-                  </article>
-                );
-              })}
-            </div>
+
+                    <div className="poll-card-face poll-card-back">
+                      <p className="subsection-label">Voter details</p>
+                      <div className="candidate-back-grid">
+                        <p>
+                          <strong>Party:</strong> {candidate.profile.party}
+                        </p>
+                        <p>
+                          <strong>Symbol:</strong> {candidate.profile.symbol}
+                        </p>
+                        <p>
+                          <strong>Constituency:</strong> {candidate.profile.constituency}
+                        </p>
+                        <p>
+                          <strong>Key promise:</strong> {candidate.profile.keyPromise}
+                        </p>
+                      </div>
+                      <p className="poll-face-note">Click again to return. Double-click for full details.</p>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
 
@@ -795,10 +878,7 @@ function App() {
       </main>
 
       {activeCandidateDetails && (
-        <div
-          className={`candidate-modal-overlay ${isDetailOpen ? "open" : ""}`}
-          onClick={closeCandidateDetails}
-        >
+        <div className={`candidate-modal-overlay ${isDetailOpen ? "open" : ""}`} onClick={closeCandidateDetails}>
           <div
             className={`candidate-modal ${isDetailOpen ? "open" : ""}`}
             onClick={(event) => event.stopPropagation()}
