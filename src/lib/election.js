@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { Election__factory } from "../../types/ethers-contracts/factories/Election__factory";
+import electionArtifact from "../../artifacts/contracts/Election.sol/Election.json";
 
 export const LOCAL_ELECTION = {
   rpcUrl: "http://127.0.0.1:8545",
@@ -13,8 +13,7 @@ export function getReadOnlyElectionContract() {
 
   return new ethers.Contract(
     LOCAL_ELECTION.contractAddress,
-    Election__factory.abi,
+    electionArtifact.abi,
     provider,
   );
 }
-

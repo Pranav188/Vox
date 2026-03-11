@@ -91,4 +91,83 @@ describe("Election", function () {
       "Invalid candidate index",
     );
   });
+
+  it("rejects votes while voting is closed", async function () {
+    const { election, voterOne } = await deployElectionFixture();
+
+    await election.registerVoter(voterOne.address);
+
+    await expect(election.connect(voterOne).vote(0)).to.be.revertedWith(
+      "Voting is closed",
+    );
+  });
+
+  it("rejects opening voting when called by a non-admin", async function () {
+    const { election, voterOne } = await deployElectionFixture();
+
+    await expect(election.connect(voterOne).openVoting()).to.be.revertedWith(
+      "Only admin can open voting",
+    );
+  });
+
+  it("rejects closing voting when called by a non-admin", async function () {
+    const { election, voterOne } = await deployElectionFixture();
+
+    await expect(election.connect(voterOne).closeVoting()).to.be.revertedWith(
+      "Only admin can close voting",
+    );
+  });
+
+  it("supports repeated open and close actions without corrupting state", async function () {
+    const { election, voterOne } = await deployElectionFixture();
+
+    await election.registerVoter(voterOne.address);
+
+    await election.openVoting();
+    await election.openVoting();
+    expect(await election.votingOpen()).to.equal(true);
+
+    await election.connect(voterOne).vote(0);
+
+    await election.closeVoting();
+    await election.closeVoting();
+    expect(await election.votingOpen()).to.equal(false);
+
+    await expect(election.connect(voterOne).vote(1)).to.be.revertedWith(
+      "Voting is closed",
+    );
+  });
+
+  it("allows duplicate voter registration without affecting vote eligibility", async function () {
+    const { election, voterOne } = await deployElectionFixture();
+
+    await election.registerVoter(voterOne.address);
+    await election.registerVoter(voterOne.address);
+    await election.openVoting();
+
+    await election.connect(voterOne).vote(0);
+
+    expect(await election.isRegisteredVoter(voterOne.address)).to.equal(true);
+    expect(await election.hasVoted(voterOne.address)).to.equal(true);
+  });
+
+  it("uses a fresh deployment for each fixture run", async function () {
+    const firstDeployment = await deployElectionFixture();
+    await firstDeployment.election.registerVoter(firstDeployment.voterOne.address);
+    await firstDeployment.election.openVoting();
+    await firstDeployment.election.connect(firstDeployment.voterOne).vote(0);
+
+    const secondDeployment = await deployElectionFixture();
+
+    expect(
+      await secondDeployment.election.isRegisteredVoter(secondDeployment.voterOne.address),
+    ).to.equal(false);
+    expect(await secondDeployment.election.hasVoted(secondDeployment.voterOne.address)).to.equal(
+      false,
+    );
+    expect(await secondDeployment.election.votingOpen()).to.equal(false);
+
+    const candidate = await secondDeployment.election.candidates(0);
+    expect(candidate.voteCount).to.equal(0n);
+  });
 });
