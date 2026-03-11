@@ -13,8 +13,8 @@
   position: fixed;
   inset: 0;
   background-image:
-    linear-gradient(to right, rgba(15, 23, 42, 0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(15, 23, 42, 0.06) 1px, transparent 1px);
+    linear-gradient(to right, rgba(62, 67, 56, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(62, 67, 56, 0.08) 1px, transparent 1px);
   background-size: 42px 42px;
   mask-image: radial-gradient(circle at top, black 25%, transparent 80%);
   pointer-events: none;
@@ -35,11 +35,11 @@
   right: 22px;
   width: 44px;
   height: 44px;
-  border: 1px solid rgba(148, 163, 184, 0.5);
+  border: 1px solid rgba(136, 129, 115, 0.45);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 252, 246, 0.94);
   backdrop-filter: blur(10px);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 10px 30px rgba(32, 39, 32, 0.12);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -50,7 +50,7 @@
 .context-toggle svg {
   width: 19px;
   height: 19px;
-  stroke: #0f172a;
+  stroke: #181f1b;
   fill: none;
   stroke-width: 1.85;
   stroke-linecap: round;
@@ -59,14 +59,14 @@
 
 .context-toggle:hover {
   transform: translateY(-1px);
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 14px 32px rgba(32, 39, 32, 0.16);
 }
 
 .context-overlay {
   position: fixed;
   inset: 0;
   z-index: 14;
-  background: rgba(15, 23, 42, 0.14);
+  background: rgba(31, 36, 31, 0.16);
   opacity: 0;
   pointer-events: none;
   transition: opacity 280ms ease;
@@ -82,12 +82,12 @@
   top: 72px;
   right: 22px;
   width: min(520px, calc(100vw - 44px));
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(136, 129, 115, 0.28);
   border-radius: 22px;
   padding: 24px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 252, 246, 0.92);
   backdrop-filter: blur(18px);
-  box-shadow: 0 28px 84px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 28px 84px rgba(32, 39, 32, 0.14);
   transform-origin: top right;
   transform: translateY(-8px) scale(0.86);
   opacity: 0;
@@ -115,8 +115,8 @@
   border-radius: 10px;
   width: 28px;
   height: 28px;
-  background: rgba(241, 245, 249, 0.9);
-  color: #334155;
+  background: rgba(241, 236, 228, 0.92);
+  color: #4d584f;
   cursor: pointer;
 }
 
@@ -132,7 +132,7 @@
   margin: 10px 0 0;
   text-align: center;
   line-height: 1.5;
-  color: #64748b;
+  color: #667064;
 }
 
 .context-status.error {
@@ -144,7 +144,7 @@
 }
 
 .context-status.info {
-  color: #1d4ed8;
+  color: #465d50;
 }
 
 .page-header {
@@ -205,6 +205,40 @@
   line-height: 1.7;
 }
 
+.route-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 8px;
+  border: 1px solid rgba(136, 129, 115, 0.26);
+  border-radius: 999px;
+  background: rgba(255, 251, 245, 0.8);
+  backdrop-filter: blur(14px);
+}
+
+.route-tab {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: transparent;
+  color: var(--color-dvs-muted);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.route-tab:hover {
+  transform: translateY(-1px);
+}
+
+.route-tab.active {
+  background: #10261c;
+  color: #f5f1e8;
+  box-shadow: inset 0 0 0 1px rgba(24, 31, 27, 0.08);
+}
+
 .page-flow {
   max-width: 1160px;
   margin: 0 auto;
@@ -215,10 +249,10 @@
 .panel,
 .poll-card,
 .candidate-modal {
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(136, 129, 115, 0.22);
+  background: rgba(255, 252, 246, 0.82);
   backdrop-filter: blur(20px);
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 20px 60px rgba(32, 39, 32, 0.08);
 }
 
 .panel {
@@ -230,6 +264,57 @@
   min-height: 78vh;
   display: grid;
   gap: 22px;
+}
+
+.route-intro-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.route-intro-panel-vote {
+  background:
+    radial-gradient(circle at top left, rgba(178, 166, 138, 0.16), transparent 28%),
+    rgba(255, 252, 246, 0.82);
+}
+
+.route-intro-panel-admin {
+  background:
+    radial-gradient(circle at top left, rgba(96, 118, 101, 0.12), transparent 28%),
+    rgba(255, 252, 246, 0.82);
+}
+
+.route-intro-copy h2 {
+  margin-top: 0;
+  font-size: clamp(1.8rem, 3vw, 2.5rem);
+  line-height: 1.02;
+}
+
+.route-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.route-summary-card {
+  border: 1px solid rgba(136, 129, 115, 0.2);
+  border-radius: 18px;
+  padding: 18px;
+  background: rgba(249, 245, 238, 0.9);
+}
+
+.route-summary-card strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1.1rem;
+  line-height: 1.3;
+}
+
+.route-summary-card p:last-child {
+  margin: 10px 0 0;
+  color: var(--color-dvs-muted);
+  line-height: 1.5;
 }
 
 .live-subsection {
@@ -251,6 +336,30 @@
 
 .admin-panel {
   min-height: 62vh;
+}
+
+.admin-security-note,
+.voter-route-card {
+  border: 1px solid rgba(136, 129, 115, 0.18);
+  border-radius: 18px;
+  padding: 18px 20px;
+  background: rgba(248, 244, 236, 0.76);
+}
+
+.admin-security-note p,
+.voter-route-card p {
+  margin-top: 0;
+}
+
+.voter-route-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.voter-route-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
 }
 
 .panel-header {
@@ -363,7 +472,7 @@
   display: flex;
   flex-direction: column;
   backface-visibility: hidden;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(244, 247, 252, 0.97));
+  background: linear-gradient(180deg, rgba(255, 252, 247, 0.97), rgba(245, 239, 230, 0.97));
 }
 
 .poll-card-back {
@@ -387,8 +496,8 @@
 }
 
 .poll-card-leading {
-  border-color: rgba(22, 163, 74, 0.35);
-  box-shadow: 0 14px 42px rgba(15, 23, 42, 0.08);
+  border-color: rgba(96, 118, 101, 0.3);
+  box-shadow: 0 14px 42px rgba(32, 39, 32, 0.08);
 }
 
 .poll-card-sample {
@@ -420,7 +529,7 @@
   width: 5px;
   height: 5px;
   border-radius: 999px;
-  background: rgba(100, 116, 139, 0.6);
+  background: rgba(116, 110, 97, 0.5);
 }
 
 .poll-card-footer {
@@ -432,7 +541,7 @@
   margin: 10px 0 0;
   font-size: 0.88rem;
   line-height: 1.45;
-  color: #64748b;
+  color: #667064;
 }
 
 .poll-form {
@@ -448,9 +557,9 @@
 
 .poll-form input {
   width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.45);
+  border: 1px solid rgba(136, 129, 115, 0.32);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 252, 246, 0.9);
   padding: 13px 14px;
   font: inherit;
   color: var(--color-dvs-text);
@@ -462,7 +571,7 @@
 
 .admin-section {
   padding: 16px 0;
-  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  border-top: 1px solid rgba(136, 129, 115, 0.16);
 }
 
 .admin-section:first-of-type {
@@ -476,7 +585,7 @@
 .status-row {
   grid-template-columns: 90px 1fr;
   padding: 11px 0;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  border-bottom: 1px solid rgba(136, 129, 115, 0.18);
 }
 
 .status-row:last-of-type {
@@ -512,8 +621,8 @@
 }
 
 .inline-feedback.info {
-  border-left-color: #2563eb;
-  color: #1d4ed8;
+  border-left-color: #607665;
+  color: #465d50;
 }
 
 .inline-compact {
@@ -530,7 +639,7 @@
 }
 
 .rule-list-muted .rule-item p {
-  color: #64748b;
+  color: #667064;
   font-size: 0.95rem;
 }
 
@@ -550,7 +659,7 @@
   height: 9px;
   margin-top: 7px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #0f172a, #1d4ed8);
+  background: linear-gradient(135deg, #1b241f, #607665);
   flex-shrink: 0;
 }
 
@@ -558,7 +667,7 @@
   position: fixed;
   inset: 0;
   z-index: 22;
-  background: rgba(15, 23, 42, 0.32);
+  background: rgba(31, 36, 31, 0.26);
   display: grid;
   place-items: center;
   padding: 20px;
@@ -638,15 +747,15 @@
 }
 
 .primary-button {
-  color: white;
-  background: linear-gradient(135deg, #0f172a, #1d4ed8);
-  box-shadow: 0 16px 30px rgba(29, 78, 216, 0.28);
+  color: #f7f3eb;
+  background: linear-gradient(135deg, #13281e, #294437);
+  box-shadow: 0 16px 30px rgba(19, 40, 30, 0.18);
 }
 
 .secondary-button {
-  background: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 252, 246, 0.92);
   color: var(--color-dvs-text);
-  border: 1px solid rgba(148, 163, 184, 0.45);
+  border: 1px solid rgba(136, 129, 115, 0.32);
 }
 
 .option-button {
@@ -656,8 +765,8 @@
   align-items: center;
   gap: 16px;
   padding: 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.95));
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: linear-gradient(180deg, rgba(255, 252, 246, 0.96), rgba(243, 237, 228, 0.96));
+  border: 1px solid rgba(136, 129, 115, 0.24);
 }
 
 .primary-button:hover,
@@ -679,7 +788,8 @@
   align-items: center;
   padding: 7px 11px;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.15);
+  border: 1px solid rgba(136, 129, 115, 0.22);
+  background: rgba(164, 153, 131, 0.14);
   color: var(--color-dvs-muted);
   font-size: 0.8rem;
   font-weight: 700;
@@ -688,8 +798,9 @@
 }
 
 .badge-live {
-  background: rgba(22, 163, 74, 0.12);
-  color: #166534;
+  border-color: rgba(33, 94, 63, 0.2);
+  background: rgba(33, 94, 63, 0.12);
+  color: #215e3f;
 }
 
 .role-chip {
@@ -698,9 +809,9 @@
   width: fit-content;
   border-radius: 999px;
   padding: 7px 11px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(255, 255, 255, 0.9);
-  color: #334155;
+  border: 1px solid rgba(136, 129, 115, 0.24);
+  background: rgba(255, 252, 246, 0.92);
+  color: #4d584f;
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -708,21 +819,21 @@
 }
 
 .role-admin {
-  color: #166534;
-  background: rgba(22, 163, 74, 0.1);
-  border-color: rgba(22, 163, 74, 0.3);
+  color: #215e3f;
+  background: rgba(33, 94, 63, 0.1);
+  border-color: rgba(33, 94, 63, 0.26);
 }
 
 .role-voter {
-  color: #1d4ed8;
-  background: rgba(37, 99, 235, 0.1);
-  border-color: rgba(37, 99, 235, 0.28);
+  color: #4c5f53;
+  background: rgba(96, 118, 101, 0.12);
+  border-color: rgba(96, 118, 101, 0.22);
 }
 
 .role-viewer,
 .role-disconnected {
-  color: #475569;
-  background: rgba(148, 163, 184, 0.12);
+  color: #5d665d;
+  background: rgba(164, 153, 131, 0.12);
 }
 
 .role-wrong_network {
@@ -737,12 +848,22 @@
     gap: 40px;
   }
 
+  .route-intro-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .route-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .poll-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 860px) {
+  .route-summary-grid,
+  .voter-route-grid,
   .poll-meta,
   .admin-action-row,
   .status-row,
@@ -815,6 +936,16 @@
     padding: 16px;
   }
 
+  .route-switcher {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .route-tab {
+    flex: 1 1 0;
+    text-align: center;
+  }
+
   .poll-card h3 {
     font-size: 1.4rem;
   }
@@ -838,4 +969,3 @@
     gap: 4px;
   }
 }
-

@@ -5,15 +5,14 @@
   --font-sans: "Inter", sans-serif;
   --font-serif: "EB Garamond", serif; /* Added the new YC-style font */
   
-  /* Richer Slate & Deep Blue Scheme */
-  --color-dvs-bg: #f1f5f9;
-  --color-dvs-surface: #ffffff;
-  --color-dvs-border: #cbd5e1;
-  --color-dvs-text: #0f172a;
-  
-  --color-dvs-primary: #1e40af;
-  --color-dvs-primary-hover: #1e3a8a;
-  --color-dvs-muted: #475569;
+  --color-dvs-bg: #f4f0e8;
+  --color-dvs-surface: #fffdf8;
+  --color-dvs-border: #d8d1c3;
+  --color-dvs-text: #181f1b;
+
+  --color-dvs-primary: #294437;
+  --color-dvs-primary-hover: #1f3429;
+  --color-dvs-muted: #5d665d;
 }
 
 body {

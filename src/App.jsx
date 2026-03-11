@@ -10,48 +10,6 @@ const learningTrack = [
   "React reads that on-chain state through ethers.",
 ];
 
-const sampleCandidates = [
-  {
-    id: "sample-1",
-    name: "Candidate Alpha",
-    rank: 1,
-    profile: {
-      party: "People First Alliance",
-      symbol: "Torch",
-      constituency: "Central District",
-      keyPromise: "Clean energy transition with local jobs.",
-      summary: "Former city planner focused on infrastructure and climate policy.",
-      priorities: ["Public transport", "Local jobs", "Clean power"],
-    },
-  },
-  {
-    id: "sample-2",
-    name: "Candidate Beta",
-    rank: 2,
-    profile: {
-      party: "Civic Progress Party",
-      symbol: "Bridge",
-      constituency: "River Ward",
-      keyPromise: "Affordable healthcare and digital public services.",
-      summary: "Community health advocate with a policy-first campaign.",
-      priorities: ["Healthcare access", "Digital services", "Education"],
-    },
-  },
-  {
-    id: "sample-3",
-    name: "Candidate Gamma",
-    rank: 3,
-    profile: {
-      party: "Independent Reform Bloc",
-      symbol: "Compass",
-      constituency: "North Borough",
-      keyPromise: "Transparent budgeting and anti-corruption reforms.",
-      summary: "Independent candidate focused on governance reform.",
-      priorities: ["Transparency", "Small business", "Safety"],
-    },
-  },
-];
-
 const fallbackParties = [
   "People First Alliance",
   "Civic Progress Party",
@@ -71,6 +29,14 @@ const fallbackConstituencies = [
 ];
 
 const DETAIL_ANIMATION_MS = 360;
+
+function getCurrentView() {
+  if (typeof window === "undefined") {
+    return "vote";
+  }
+
+  return window.location.hash === "#/admin" ? "admin" : "vote";
+}
 
 function shortenAddress(address) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -98,11 +64,33 @@ function makeStatus(type, stage, action, message, txHash = "") {
 }
 
 function normalizeError(error, fallbackMessage) {
-  const source = error?.shortMessage || error?.reason || error?.message || fallbackMessage;
+  const candidates = [
+    error?.reason,
+    error?.revert?.args?.[0],
+    error?.info?.error?.data?.reason,
+    error?.info?.error?.message,
+    error?.error?.data?.reason,
+    error?.error?.message,
+    error?.data?.reason,
+    error?.data?.message,
+    error?.shortMessage,
+    error?.message,
+    fallbackMessage,
+  ];
+
+  const source =
+    candidates.find((value) => typeof value === "string" && value.trim().length > 0) || fallbackMessage;
 
   return source
     .replace("execution reverted: ", "")
+    .replace('VM Exception while processing transaction: reverted with reason string "', "")
     .replace("reverted with reason string ", "")
+    .replace(/^Error: /u, "")
+    .replace(/^missing revert data$/u, fallbackMessage)
+    .replace(/^Internal JSON-RPC error\./u, "")
+    .replace(/^MetaMask Tx Signature: User denied transaction signature\./u, "Transaction rejected in MetaMask.")
+    .replace(/^MetaMask Tx Signature: /u, "")
+    .replace(/"$/u, "")
     .replace(/\(action=.*$/u, "")
     .trim();
 }
@@ -116,6 +104,7 @@ function renderStatusLine(feedback, className = "") {
 }
 
 function App() {
+  const [currentView, setCurrentView] = useState(getCurrentView);
   const [walletState, setWalletState] = useState({
     account: "",
     chainId: null,
@@ -299,6 +288,17 @@ function App() {
   useEffect(() => {
     refreshElectionState();
   }, [refreshElectionState]);
+
+  useEffect(() => {
+    function handleHashChange() {
+      setCurrentView(getCurrentView());
+    }
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => {
+      window.removeEventListener("hashchange", handleHashChange);
+    };
+  }, []);
 
   useEffect(() => {
     async function loadWalletState() {
@@ -712,7 +712,6 @@ function App() {
       voteShare: totalVotes === 0 ? 0 : (candidate.voteCount / totalVotes) * 100,
       isLeading: totalVotes > 0 && candidate.voteCount === leadingVoteCount,
       profile: getFallbackProfile(candidate.index, candidate.name),
-      isSample: false,
     }));
 
     return {
@@ -720,30 +719,12 @@ function App() {
       candidates,
     };
   }, [electionState.candidates]);
+  const hasLiveCandidates = candidateMetrics.candidates.length > 0;
+  const showCandidateLoading = isLoading;
+  const showCandidateUnavailable = !isLoading && !electionState.electionName && !hasLiveCandidates;
+  const showCandidateEmpty = !isLoading && Boolean(electionState.electionName) && !hasLiveCandidates;
 
-  const cardsToRender = useMemo(() => {
-    if (isLoading || candidateMetrics.candidates.length === 0) {
-      return sampleCandidates.map((candidate) => ({
-        id: candidate.id,
-        index: candidate.rank,
-        name: candidate.name,
-        voteCount: 0,
-        rank: candidate.rank,
-        voteShare: 0,
-        isLeading: false,
-        isSample: true,
-        profile: candidate.profile,
-      }));
-    }
-
-    return candidateMetrics.candidates;
-  }, [candidateMetrics.candidates, isLoading]);
-
-  function getVoteDisabledReason(candidate) {
-    if (candidate.isSample) {
-      return "Connect wallet and deploy local contract data to vote from this card.";
-    }
-
+  function getVoteDisabledReason() {
     if (isSubmittingVote) {
       return "A vote transaction is already pending.";
     }
@@ -869,6 +850,56 @@ function App() {
     }, DETAIL_ANIMATION_MS);
   }
 
+  function navigateTo(view) {
+    window.location.hash = view === "admin" ? "/admin" : "/vote";
+  }
+
+  const pageTitle = currentView === "admin" ? "Admin console for the election lifecycle." : "Wallet-first voter flow with live contract data.";
+  const pageDescription =
+    currentView === "admin"
+      ? "Use the admin route to register voters and control election state without mixing those controls into the voter experience."
+      : "Use the voter route to inspect candidates, connect a wallet, and cast one on-chain vote when voting is open.";
+  const heroTitle =
+    currentView === "admin" ? "Operate the election without polluting the ballot." : "Cast one wallet-backed vote from a clean ballot page.";
+  const routeSummaryCards =
+    currentView === "admin"
+      ? [
+          {
+            label: "Lifecycle",
+            value: electionState.votingOpen ? "Voting open" : "Voting closed",
+            helper: "Open or close the election from the admin wallet only.",
+          },
+          {
+            label: "Registered role",
+            value: roleState.label,
+            helper: "The contract still blocks non-admin wallets even on this page.",
+          },
+          {
+            label: "Candidates",
+            value: `${electionState.candidateCount}`,
+            helper: "Results shown here are live reads from the deployed contract.",
+          },
+        ]
+      : [
+          {
+            label: "Ballot status",
+            value: electionState.votingOpen ? "Open now" : "Closed now",
+            helper: electionState.votingOpen
+              ? "Registered voters can submit exactly one vote."
+              : "Wait for the admin to open the election before voting.",
+          },
+          {
+            label: "Your role",
+            value: roleState.label,
+            helper: roleGuidance,
+          },
+          {
+            label: "Candidates",
+            value: `${electionState.candidateCount}`,
+            helper: "Candidate names and vote totals come from the contract, not the frontend.",
+          },
+        ];
+
   return (
     <div className="app-shell">
       <div className="background-grid" />
@@ -940,16 +971,53 @@ function App() {
 
       <header className="page-header">
         <p className="eyebrow">Vox Election MVP</p>
-        <h1>Live contract data, cleaner flow.</h1>
-        <p className="hero-copy">
-          Scroll down once from this intro to reach the election section, then continue to admin controls.
-        </p>
+        <h1>{heroTitle}</h1>
+        <p className="hero-copy">{pageDescription}</p>
+        <div className="route-switcher" role="tablist" aria-label="Application view">
+          <button
+            aria-selected={currentView === "vote"}
+            className={`route-tab ${currentView === "vote" ? "active" : ""}`}
+            onClick={() => navigateTo("vote")}
+            type="button"
+          >
+            Voter view
+          </button>
+          <button
+            aria-selected={currentView === "admin"}
+            className={`route-tab ${currentView === "admin" ? "active" : ""}`}
+            onClick={() => navigateTo("admin")}
+            type="button"
+          >
+            Admin view
+          </button>
+        </div>
       </header>
 
       <main className="page-flow">
+        <section className={`panel route-intro-panel route-intro-panel-${currentView}`}>
+          <div className="route-intro-copy">
+            <p className="panel-label">{currentView === "admin" ? "Admin workspace" : "Voter workspace"}</p>
+            <h2>{pageTitle}</h2>
+            <p className="helper-text">
+              {currentView === "admin"
+                ? "This page is optimized for registration and lifecycle changes. It reduces accidental clicks in demos, while the smart contract remains the real gatekeeper."
+                : "This page keeps the voting flow focused: connect, verify status, inspect candidates, and submit one transaction when eligible."}
+            </p>
+          </div>
+          <div className="route-summary-grid">
+            {routeSummaryCards.map((card) => (
+              <div className="route-summary-card" key={card.label}>
+                <p className="panel-label">{card.label}</p>
+                <strong>{card.value}</strong>
+                <p>{card.helper}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <section className="panel role-banner" aria-label="Wallet role and network status">
           <div className="role-banner-head">
-            <p className="panel-label">Testing status</p>
+            <p className="panel-label">{currentView === "admin" ? "Admin route status" : "Voter route status"}</p>
             <span className={`role-chip role-${roleState.key}`}>{roleState.label}</span>
           </div>
           <div className="role-banner-grid">
@@ -965,8 +1033,14 @@ function App() {
               <p>{networkLabel}</p>
             </div>
             <div>
-              <p className="subsection-label">Role resolution</p>
-              <p>{isResolvingRole ? "Checking voter registration..." : roleGuidance}</p>
+              <p className="subsection-label">{currentView === "admin" ? "Route guidance" : "Role resolution"}</p>
+              <p>
+                {currentView === "admin"
+                  ? "Only the deployer wallet can use the admin controls below. Contract rules still enforce this on-chain."
+                  : isResolvingRole
+                    ? "Checking voter registration..."
+                    : roleGuidance}
+              </p>
             </div>
           </div>
         </section>
@@ -975,11 +1049,15 @@ function App() {
           <div className="live-subsection live-subsection-intro">
             <div className="panel-header">
               <div>
-                <p className="panel-label">Live election</p>
+                <p className="panel-label">{currentView === "admin" ? "Admin overview" : "Live election"}</p>
                 <h2>{electionState.electionName || "Loading election..."}</h2>
               </div>
               <div className="panel-header-meta">
-                <p className="panel-subtext">Real-time values are read directly from the deployed smart contract.</p>
+                <p className="panel-subtext">
+                  {currentView === "admin"
+                    ? "Admin controls are separated in this route, but the smart contract remains the real authority."
+                    : "Real-time values are read directly from the deployed smart contract."}
+                </p>
                 <span className={`role-chip role-${roleState.key}`}>Current role: {roleState.label}</span>
               </div>
             </div>
@@ -1002,16 +1080,30 @@ function App() {
               </span>
             </div>
 
-            <div className="poll-list">
-              {cardsToRender.map((candidate) => {
+            {showCandidateLoading && (
+              <p className="helper-text">Loading candidate data from the deployed contract...</p>
+            )}
+            {showCandidateUnavailable && (
+              <p className="helper-text">
+                Candidate data is unavailable. Make sure the Hardhat node is running, the contract is
+                deployed, and the frontend address matches the latest deployment.
+              </p>
+            )}
+            {showCandidateEmpty && (
+              <p className="helper-text">No candidates were returned by the current contract deployment.</p>
+            )}
+
+            {!showCandidateLoading && hasLiveCandidates && (
+              <div className="poll-list">
+                {candidateMetrics.candidates.map((candidate) => {
                 const isFlipped = Boolean(flippedCards[candidate.id]);
-                const voteDisabledReason = getVoteDisabledReason(candidate);
+                const voteDisabledReason = getVoteDisabledReason();
 
                 return (
                   <article
                     className={`poll-card interactive-card ${candidate.isLeading ? "poll-card-leading" : ""} ${
-                      candidate.isSample ? "poll-card-sample" : ""
-                    } ${isFlipped ? "flipped" : ""}`}
+                      isFlipped ? "flipped" : ""
+                    }`}
                     key={candidate.id}
                     onClick={() => handleCardClick(candidate.id)}
                     onDoubleClick={(event) => handleCardDoubleClick(candidate, event)}
@@ -1035,25 +1127,18 @@ function App() {
                         <p className="poll-face-note">Click to flip for voter details, double-click for full profile.</p>
 
                         <div className="poll-card-footer">
-                          {candidate.isSample ? (
-                            <button className="option-button" disabled type="button">
-                              <span>Connect and deploy to vote</span>
-                              <strong>Send transaction</strong>
-                            </button>
-                          ) : (
-                            <button
-                              className="option-button"
-                              disabled={Boolean(voteDisabledReason)}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                voteForCandidate(candidate.index);
-                              }}
-                              type="button"
-                            >
-                              <span>Vote for {candidate.name}</span>
-                              <strong>{isSubmittingVote ? "Submitting..." : "Send transaction"}</strong>
-                            </button>
-                          )}
+                          <button
+                            className="option-button"
+                            disabled={Boolean(voteDisabledReason)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              voteForCandidate(candidate.index);
+                            }}
+                            type="button"
+                          >
+                            <span>Vote for {candidate.name}</span>
+                            <strong>{isSubmittingVote ? "Submitting..." : "Send transaction"}</strong>
+                          </button>
                           {voteDisabledReason && <p className="button-helper">{voteDisabledReason}</p>}
                         </div>
                       </div>
@@ -1079,87 +1164,130 @@ function App() {
                     </div>
                   </article>
                 );
-              })}
-            </div>
+                })}
+              </div>
+            )}
             {renderStatusLine(actionStatus.vote)}
           </div>
         </section>
 
-        <section className="panel admin-panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-label">Admin controls</p>
-              <h2>Run the election lifecycle</h2>
-            </div>
-            <span className={`role-chip role-${roleState.key}`}>Current role: {roleState.label}</span>
-          </div>
-
-          <div className="admin-section">
-            <p className="subsection-label">Voter registration</p>
-            <form className="poll-form" onSubmit={registerVoterFromUi}>
-              <label>
-                Voter address
-                <input
-                  type="text"
-                  value={adminForm.voterAddress}
-                  onChange={(event) => setAdminForm({ voterAddress: event.target.value })}
-                  placeholder="0x..."
-                  required
-                />
-              </label>
-              <p className="helper-text">Use a valid wallet address on the local Hardhat network.</p>
-              <button className="primary-button form-submit" disabled={Boolean(registerDisabledReason)} type="submit">
-                Register voter
-              </button>
-              {registerDisabledReason && <p className="button-helper">{registerDisabledReason}</p>}
-            </form>
-            {renderStatusLine(actionStatus.registerVoter)}
-          </div>
-
-          <div className="admin-section">
-            <p className="subsection-label">Admin actions</p>
-            <div className="admin-action-row">
+        {currentView === "admin" ? (
+          <section className="panel admin-panel">
+            <div className="panel-header">
               <div>
-                <button
-                  className="secondary-button"
-                  disabled={Boolean(openVotingDisabledReason)}
-                  onClick={openVotingFromUi}
-                  type="button"
-                >
-                  Open voting
-                </button>
-                {openVotingDisabledReason && <p className="button-helper">{openVotingDisabledReason}</p>}
-                {renderStatusLine(actionStatus.openVoting, "inline-compact")}
+                <p className="panel-label">Admin controls</p>
+                <h2>Run the election lifecycle</h2>
               </div>
+              <span className={`role-chip role-${roleState.key}`}>Current role: {roleState.label}</span>
+            </div>
 
-              <div>
-                <button
-                  className="secondary-button"
-                  disabled={Boolean(closeVotingDisabledReason)}
-                  onClick={closeVotingFromUi}
-                  type="button"
-                >
-                  Close voting
+            <div className="admin-security-note">
+              <p className="subsection-label">Important note</p>
+              <p>
+                This separate admin page improves workflow clarity, but the contract is still the real access
+                control layer. Non-admin wallets remain blocked on-chain.
+              </p>
+            </div>
+
+            <div className="admin-section">
+              <p className="subsection-label">Voter registration</p>
+              <form className="poll-form" onSubmit={registerVoterFromUi}>
+                <label>
+                  Voter address
+                  <input
+                    type="text"
+                    value={adminForm.voterAddress}
+                    onChange={(event) => setAdminForm({ voterAddress: event.target.value })}
+                    placeholder="0x..."
+                    required
+                  />
+                </label>
+                <p className="helper-text">Use a valid wallet address on the local Hardhat network.</p>
+                <button className="primary-button form-submit" disabled={Boolean(registerDisabledReason)} type="submit">
+                  Register voter
                 </button>
-                {closeVotingDisabledReason && <p className="button-helper">{closeVotingDisabledReason}</p>}
-                {renderStatusLine(actionStatus.closeVoting, "inline-compact")}
+                {registerDisabledReason && <p className="button-helper">{registerDisabledReason}</p>}
+              </form>
+              {renderStatusLine(actionStatus.registerVoter)}
+            </div>
+
+            <div className="admin-section">
+              <p className="subsection-label">Admin actions</p>
+              <div className="admin-action-row">
+                <div>
+                  <button
+                    className="secondary-button"
+                    disabled={Boolean(openVotingDisabledReason)}
+                    onClick={openVotingFromUi}
+                    type="button"
+                  >
+                    Open voting
+                  </button>
+                  {openVotingDisabledReason && <p className="button-helper">{openVotingDisabledReason}</p>}
+                  {renderStatusLine(actionStatus.openVoting, "inline-compact")}
+                </div>
+
+                <div>
+                  <button
+                    className="secondary-button"
+                    disabled={Boolean(closeVotingDisabledReason)}
+                    onClick={closeVotingFromUi}
+                    type="button"
+                  >
+                    Close voting
+                  </button>
+                  {closeVotingDisabledReason && <p className="button-helper">{closeVotingDisabledReason}</p>}
+                  {renderStatusLine(actionStatus.closeVoting, "inline-compact")}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="rule-list rule-list-muted top-gap">
-            {learningTrack.map((principle) => (
-              <div className="rule-item" key={principle}>
+            <div className="rule-list rule-list-muted top-gap">
+              {learningTrack.map((principle) => (
+                <div className="rule-item" key={principle}>
+                  <span className="rule-mark" />
+                  <p>{principle}</p>
+                </div>
+              ))}
+              <div className="rule-item">
                 <span className="rule-mark" />
-                <p>{principle}</p>
+                <p>MetaMask provides the signer, so the contract can trust msg.sender during voting.</p>
               </div>
-            ))}
-            <div className="rule-item">
-              <span className="rule-mark" />
-              <p>MetaMask provides the signer, so the contract can trust msg.sender during voting.</p>
             </div>
-          </div>
-        </section>
+          </section>
+        ) : (
+          <section className="panel voter-route-panel">
+            <div className="panel-header">
+              <div>
+                <p className="panel-label">Voter route</p>
+                <h2>Cast one on-chain vote</h2>
+              </div>
+              <span className={`role-chip role-${roleState.key}`}>Current role: {roleState.label}</span>
+            </div>
+
+            <div className="voter-route-grid">
+              <div className="voter-route-card">
+                <p className="subsection-label">Ballot rules</p>
+                <p className="helper-text">
+                  Registered wallets can submit one vote while the election is open. The contract prevents double
+                  voting and rejects unregistered wallets.
+                </p>
+              </div>
+              <div className="voter-route-card">
+                <p className="subsection-label">Before you vote</p>
+                <p className="helper-text">
+                  {electionState.votingOpen
+                    ? "Voting is currently open for registered wallets."
+                    : "Voting is currently closed until the admin opens it."}
+                </p>
+                <p className="helper-text">
+                  Use the candidate cards above to inspect profiles, then send one transaction from your registered
+                  wallet.
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
       </main>
 
       {activeCandidateDetails && (
