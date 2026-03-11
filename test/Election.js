@@ -45,6 +45,24 @@ describe("Election", function () {
     ).to.be.revertedWith("Only admin can register voters");
   });
 
+  it("rejects zero-address voter registration", async function () {
+    const { election } = await deployElectionFixture();
+
+    await expect(
+      election.registerVoter(ethers.ZeroAddress),
+    ).to.be.revertedWith("Invalid voter address");
+  });
+
+  it("rejects duplicate voter registration", async function () {
+    const { election, voterOne } = await deployElectionFixture();
+
+    await election.registerVoter(voterOne.address);
+
+    await expect(
+      election.registerVoter(voterOne.address),
+    ).to.be.revertedWith("Voter already registered");
+  });
+
   it("allows a registered voter to vote when voting is open", async function () {
     const { election, voterOne } = await deployElectionFixture();
 
@@ -56,6 +74,16 @@ describe("Election", function () {
     const candidate = await election.candidates(0);
     expect(candidate.voteCount).to.equal(1n);
     expect(await election.hasVoted(voterOne.address)).to.equal(true);
+  });
+
+  it("rejects votes while voting is closed", async function () {
+    const { election, voterOne } = await deployElectionFixture();
+
+    await election.registerVoter(voterOne.address);
+
+    await expect(election.connect(voterOne).vote(0)).to.be.revertedWith(
+      "Voting is closed",
+    );
   });
 
   it("rejects votes from unregistered voters", async function () {
@@ -92,16 +120,6 @@ describe("Election", function () {
     );
   });
 
-  it("rejects votes while voting is closed", async function () {
-    const { election, voterOne } = await deployElectionFixture();
-
-    await election.registerVoter(voterOne.address);
-
-    await expect(election.connect(voterOne).vote(0)).to.be.revertedWith(
-      "Voting is closed",
-    );
-  });
-
   it("rejects opening voting when called by a non-admin", async function () {
     const { election, voterOne } = await deployElectionFixture();
 
@@ -118,37 +136,43 @@ describe("Election", function () {
     );
   });
 
-  it("supports repeated open and close actions without corrupting state", async function () {
-    const { election, voterOne } = await deployElectionFixture();
-
-    await election.registerVoter(voterOne.address);
+  it("rejects opening voting when it is already open", async function () {
+    const { election } = await deployElectionFixture();
 
     await election.openVoting();
-    await election.openVoting();
-    expect(await election.votingOpen()).to.equal(true);
 
-    await election.connect(voterOne).vote(0);
-
-    await election.closeVoting();
-    await election.closeVoting();
-    expect(await election.votingOpen()).to.equal(false);
-
-    await expect(election.connect(voterOne).vote(1)).to.be.revertedWith(
-      "Voting is closed",
+    await expect(election.openVoting()).to.be.revertedWith(
+      "Voting is already open",
     );
   });
 
-  it("allows duplicate voter registration without affecting vote eligibility", async function () {
-    const { election, voterOne } = await deployElectionFixture();
+  it("rejects closing voting when it is already closed", async function () {
+    const { election } = await deployElectionFixture();
 
-    await election.registerVoter(voterOne.address);
-    await election.registerVoter(voterOne.address);
-    await election.openVoting();
+    await expect(election.closeVoting()).to.be.revertedWith(
+      "Voting is already closed",
+    );
+  });
 
-    await election.connect(voterOne).vote(0);
+  it("rejects deployment with an empty election name", async function () {
+    await expect(
+      ethers.deployContract("Election", ["", ["Alice", "Bob"]]),
+    ).to.be.revertedWith("Election name is required");
+  });
 
-    expect(await election.isRegisteredVoter(voterOne.address)).to.equal(true);
-    expect(await election.hasVoted(voterOne.address)).to.equal(true);
+  it("rejects deployment with no candidates", async function () {
+    await expect(
+      ethers.deployContract("Election", ["Student Council Election 2026", []]),
+    ).to.be.revertedWith("At least one candidate is required");
+  });
+
+  it("rejects deployment with an empty candidate name", async function () {
+    await expect(
+      ethers.deployContract("Election", [
+        "Student Council Election 2026",
+        ["Alice", ""],
+      ]),
+    ).to.be.revertedWith("Candidate name cannot be empty");
   });
 
   it("uses a fresh deployment for each fixture run", async function () {
