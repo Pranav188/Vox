@@ -24,3 +24,5 @@ cache
 *.njsproj
 *.sln
 *.sw?
+
+types/
