@@ -346,6 +346,15 @@
   background: rgba(248, 244, 236, 0.76);
 }
 
+.admin-locked-state {
+  display: grid;
+  gap: 14px;
+  border: 1px dashed rgba(136, 129, 115, 0.34);
+  border-radius: 18px;
+  padding: 22px 20px;
+  background: rgba(247, 242, 233, 0.7);
+}
+
 .admin-security-note p,
 .voter-route-card p {
   margin-top: 0;

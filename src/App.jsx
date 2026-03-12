@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ethers } from "ethers";
 import "./App.css";
-import { LOCAL_ELECTION, getReadOnlyElectionContract } from "./lib/election";
+import { ELECTION_CONFIG, getReadOnlyElectionContract } from "./lib/election";
 
 const learningTrack = [
   "Contract source defines election rules.",
@@ -142,11 +142,13 @@ function App() {
   const clickTimeoutsRef = useRef({});
   const closeDetailTimeoutRef = useRef(null);
 
-  const isCorrectNetwork = walletState.chainId === LOCAL_ELECTION.chainId;
+  const isCorrectNetwork = walletState.chainId === ELECTION_CONFIG.chainId;
   const isAdmin =
     walletState.account &&
     electionState.admin &&
     walletState.account.toLowerCase() === electionState.admin.toLowerCase();
+  const isAdminRouteLocked = !walletState.account || !isCorrectNetwork || !isAdmin;
+  const targetChainIdHex = ethers.toBeHex(ELECTION_CONFIG.chainId);
 
   const roleState = useMemo(() => {
     if (!walletState.account) {
@@ -174,7 +176,7 @@ function App() {
     }
 
     if (roleState.key === "wrong_network") {
-      return `Switch MetaMask to ${LOCAL_ELECTION.chainName} to continue testing.`;
+      return `Switch MetaMask to ${ELECTION_CONFIG.chainName} to continue testing.`;
     }
 
     if (roleState.key === "admin") {
@@ -196,10 +198,10 @@ function App() {
     }
 
     if (isCorrectNetwork) {
-      return LOCAL_ELECTION.chainName;
+      return ELECTION_CONFIG.chainName;
     }
 
-    return `Chain ${walletState.chainId} (expected ${LOCAL_ELECTION.chainId})`;
+    return `Chain ${walletState.chainId} (expected ${ELECTION_CONFIG.chainId})`;
   }, [isCorrectNetwork, walletState.chainId]);
 
   const updateActionStatus = useCallback((actionKey, feedback) => {
@@ -210,7 +212,7 @@ function App() {
   }, []);
 
   const refreshVoterRole = useCallback(async (account, chainId) => {
-    if (!account || chainId !== LOCAL_ELECTION.chainId) {
+    if (!account || chainId !== ELECTION_CONFIG.chainId) {
       setIsRegisteredVoter(false);
       setIsResolvingRole(false);
       return;
@@ -365,13 +367,13 @@ function App() {
         chainId: nextChainId,
       }));
 
-      if (nextChainId !== LOCAL_ELECTION.chainId) {
+      if (nextChainId !== ELECTION_CONFIG.chainId) {
         setStatus(
           makeStatus(
             "error",
             "error",
             "network",
-            `Wrong network detected. Switch to ${LOCAL_ELECTION.chainName} (${LOCAL_ELECTION.chainId}).`,
+            `Wrong network detected. Switch to ${ELECTION_CONFIG.chainName} (${ELECTION_CONFIG.chainId}).`,
           ),
         );
       } else {
@@ -380,7 +382,7 @@ function App() {
             "success",
             "idle",
             "network",
-            `${LOCAL_ELECTION.chainName} selected. Actions are available for your current role.`,
+            `${ELECTION_CONFIG.chainName} selected. Actions are available for your current role.`,
           ),
         );
       }
@@ -448,7 +450,7 @@ function App() {
 
   function getBrowserContract(signer) {
     return new ethers.Contract(
-      LOCAL_ELECTION.contractAddress,
+      ELECTION_CONFIG.contractAddress,
       getReadOnlyElectionContract().interface,
       signer,
     );
@@ -464,7 +466,7 @@ function App() {
     }
 
     if (!isCorrectNetwork) {
-      return `Switch MetaMask to ${LOCAL_ELECTION.chainName} before continuing.`;
+      return `Switch MetaMask to ${ELECTION_CONFIG.chainName} before continuing.`;
     }
 
     if (requiresAdmin && !isAdmin) {
@@ -550,13 +552,13 @@ function App() {
           "info",
           "pending",
           "connect",
-          `Requesting ${LOCAL_ELECTION.chainName} in MetaMask before connecting wallet...`,
+          `Requesting ${ELECTION_CONFIG.chainName} in MetaMask before connecting wallet...`,
         ),
       );
 
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x7a69" }],
+        params: [{ chainId: targetChainIdHex }],
       });
     } catch (error) {
       if (error.code === 4902) {
@@ -564,9 +566,9 @@ function App() {
           method: "wallet_addEthereumChain",
           params: [
             {
-              chainId: "0x7a69",
-              chainName: LOCAL_ELECTION.chainName,
-              rpcUrls: [LOCAL_ELECTION.rpcUrl],
+              chainId: targetChainIdHex,
+              chainName: ELECTION_CONFIG.chainName,
+              rpcUrls: [ELECTION_CONFIG.rpcUrl],
               nativeCurrency: {
                 name: "Ethereum",
                 symbol: "ETH",
@@ -581,7 +583,7 @@ function App() {
             "error",
             "error",
             "connect",
-            normalizeError(error, "Could not switch MetaMask to the local Hardhat network."),
+            normalizeError(error, `Could not switch MetaMask to ${ELECTION_CONFIG.chainName}.`),
           ),
         );
         return;
@@ -592,7 +594,7 @@ function App() {
       const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
       setWalletState({
         account: accounts[0] || "",
-        chainId: LOCAL_ELECTION.chainId,
+        chainId: ELECTION_CONFIG.chainId,
       });
       setStatus(
         makeStatus(
@@ -734,7 +736,7 @@ function App() {
     }
 
     if (!isCorrectNetwork) {
-      return `Switch to ${LOCAL_ELECTION.chainName} before voting.`;
+      return `Switch to ${ELECTION_CONFIG.chainName} before voting.`;
     }
 
     if (!electionState.votingOpen) {
@@ -758,7 +760,7 @@ function App() {
     }
 
     if (!isCorrectNetwork) {
-      return `Switch to ${LOCAL_ELECTION.chainName} to use admin controls.`;
+      return `Switch to ${ELECTION_CONFIG.chainName} to use admin controls.`;
     }
 
     if (!isAdmin) {
@@ -940,11 +942,11 @@ function App() {
 
         <div className="status-row">
           <span>Network</span>
-          <strong>{LOCAL_ELECTION.chainName}</strong>
+          <strong>{ELECTION_CONFIG.chainName}</strong>
         </div>
         <div className="status-row">
           <span>Contract</span>
-          <strong>{shortenAddress(LOCAL_ELECTION.contractAddress)}</strong>
+          <strong>{ELECTION_CONFIG.contractAddress ? shortenAddress(ELECTION_CONFIG.contractAddress) : "Not set"}</strong>
         </div>
         <div className="status-row">
           <span>Admin</span>
@@ -1068,7 +1070,7 @@ function App() {
             <div className="poll-meta">
               <span>Candidates: {electionState.candidateCount}</span>
               <span>Total votes: {candidateMetrics.totalVotes}</span>
-              <span>Chain ID: {LOCAL_ELECTION.chainId}</span>
+              <span>Chain ID: {ELECTION_CONFIG.chainId}</span>
             </div>
           </div>
 
@@ -1189,58 +1191,80 @@ function App() {
               </p>
             </div>
 
-            <div className="admin-section">
-              <p className="subsection-label">Voter registration</p>
-              <form className="poll-form" onSubmit={registerVoterFromUi}>
-                <label>
-                  Voter address
-                  <input
-                    type="text"
-                    value={adminForm.voterAddress}
-                    onChange={(event) => setAdminForm({ voterAddress: event.target.value })}
-                    placeholder="0x..."
-                    required
-                  />
-                </label>
-                <p className="helper-text">Use a valid wallet address on the local Hardhat network.</p>
-                <button className="primary-button form-submit" disabled={Boolean(registerDisabledReason)} type="submit">
-                  Register voter
-                </button>
-                {registerDisabledReason && <p className="button-helper">{registerDisabledReason}</p>}
-              </form>
-              {renderStatusLine(actionStatus.registerVoter)}
-            </div>
-
-            <div className="admin-section">
-              <p className="subsection-label">Admin actions</p>
-              <div className="admin-action-row">
-                <div>
-                  <button
-                    className="secondary-button"
-                    disabled={Boolean(openVotingDisabledReason)}
-                    onClick={openVotingFromUi}
-                    type="button"
-                  >
-                    Open voting
+            {isAdminRouteLocked ? (
+              <div className="admin-locked-state">
+                <p className="subsection-label">Admin access required</p>
+                <p className="helper-text">
+                  {!walletState.account
+                    ? "Connect MetaMask with the deployer wallet to unlock admin controls."
+                    : !isCorrectNetwork
+                      ? `Switch MetaMask to ${ELECTION_CONFIG.chainName}, then reconnect with the deployer wallet.`
+                      : electionState.admin
+                        ? `This wallet is not the admin. Switch to ${shortenAddress(electionState.admin)} to access election controls.`
+                        : "This wallet is not the admin for the active deployment."}
+                </p>
+                {!walletState.account && (
+                  <button className="primary-button" onClick={connectWallet} type="button">
+                    Connect admin wallet
                   </button>
-                  {openVotingDisabledReason && <p className="button-helper">{openVotingDisabledReason}</p>}
-                  {renderStatusLine(actionStatus.openVoting, "inline-compact")}
-                </div>
-
-                <div>
-                  <button
-                    className="secondary-button"
-                    disabled={Boolean(closeVotingDisabledReason)}
-                    onClick={closeVotingFromUi}
-                    type="button"
-                  >
-                    Close voting
-                  </button>
-                  {closeVotingDisabledReason && <p className="button-helper">{closeVotingDisabledReason}</p>}
-                  {renderStatusLine(actionStatus.closeVoting, "inline-compact")}
-                </div>
+                )}
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="admin-section">
+                  <p className="subsection-label">Voter registration</p>
+                  <form className="poll-form" onSubmit={registerVoterFromUi}>
+                    <label>
+                      Voter address
+                      <input
+                        type="text"
+                        value={adminForm.voterAddress}
+                        onChange={(event) => setAdminForm({ voterAddress: event.target.value })}
+                        placeholder="0x..."
+                        required
+                      />
+                    </label>
+                    <p className="helper-text">Use a valid wallet address on the active {ELECTION_CONFIG.chainName} network.</p>
+                    <button className="primary-button form-submit" disabled={Boolean(registerDisabledReason)} type="submit">
+                      Register voter
+                    </button>
+                    {registerDisabledReason && <p className="button-helper">{registerDisabledReason}</p>}
+                  </form>
+                  {renderStatusLine(actionStatus.registerVoter)}
+                </div>
+
+                <div className="admin-section">
+                  <p className="subsection-label">Admin actions</p>
+                  <div className="admin-action-row">
+                    <div>
+                      <button
+                        className="secondary-button"
+                        disabled={Boolean(openVotingDisabledReason)}
+                        onClick={openVotingFromUi}
+                        type="button"
+                      >
+                        Open voting
+                      </button>
+                      {openVotingDisabledReason && <p className="button-helper">{openVotingDisabledReason}</p>}
+                      {renderStatusLine(actionStatus.openVoting, "inline-compact")}
+                    </div>
+
+                    <div>
+                      <button
+                        className="secondary-button"
+                        disabled={Boolean(closeVotingDisabledReason)}
+                        onClick={closeVotingFromUi}
+                        type="button"
+                      >
+                        Close voting
+                      </button>
+                      {closeVotingDisabledReason && <p className="button-helper">{closeVotingDisabledReason}</p>}
+                      {renderStatusLine(actionStatus.closeVoting, "inline-compact")}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
 
             <div className="rule-list rule-list-muted top-gap">
               {learningTrack.map((principle) => (
