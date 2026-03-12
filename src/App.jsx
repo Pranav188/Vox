@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ethers } from "ethers";
+import { flushSync } from "react-dom";
 import "./App.css";
 import { LOCAL_ELECTION, getReadOnlyElectionContract } from "./lib/election";
 
@@ -29,6 +30,30 @@ const fallbackConstituencies = [
 ];
 
 const DETAIL_ANIMATION_MS = 360;
+const ROUTE_TRANSITION_MODES = ["zoom"];
+const BACKGROUND_MODES = ["continuous"];
+const DEFAULT_ROUTE_TRANSITION = "zoom";
+const DEFAULT_BACKGROUND_MODE = "continuous";
+
+function getExperienceConfig() {
+  if (typeof window === "undefined") {
+    return {
+      transitionMode: DEFAULT_ROUTE_TRANSITION,
+      backgroundMode: DEFAULT_BACKGROUND_MODE,
+    };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const transitionMode = params.get("transition");
+  const backgroundMode = params.get("bg");
+
+  return {
+    transitionMode: ROUTE_TRANSITION_MODES.includes(transitionMode)
+      ? transitionMode
+      : DEFAULT_ROUTE_TRANSITION,
+    backgroundMode: BACKGROUND_MODES.includes(backgroundMode) ? backgroundMode : DEFAULT_BACKGROUND_MODE,
+  };
+}
 
 function getCurrentView() {
   if (typeof window === "undefined") {
@@ -104,7 +129,14 @@ function renderStatusLine(feedback, className = "") {
 }
 
 function App() {
+  const experienceConfig = useMemo(() => getExperienceConfig(), []);
+  const routeTransitionMode = experienceConfig.transitionMode;
+  const backgroundMode = experienceConfig.backgroundMode;
+  const supportsViewTransitions =
+    typeof document !== "undefined" && typeof document.startViewTransition === "function";
   const [currentView, setCurrentView] = useState(getCurrentView);
+  const [isRouteAnimating, setIsRouteAnimating] = useState(false);
+  const [routeTransitionDirection, setRouteTransitionDirection] = useState("forward");
   const [walletState, setWalletState] = useState({
     account: "",
     chainId: null,
@@ -141,6 +173,10 @@ function App() {
   const [detailMotion, setDetailMotion] = useState({ dx: 0, dy: 0, sx: 1, sy: 1 });
   const clickTimeoutsRef = useRef({});
   const closeDetailTimeoutRef = useRef(null);
+  const routeTransitionTimerRef = useRef(null);
+  const backgroundInertiaRafRef = useRef(null);
+  const appShellRef = useRef(null);
+  const pageHeaderRef = useRef(null);
 
   const isCorrectNetwork = walletState.chainId === LOCAL_ELECTION.chainId;
   const isAdmin =
@@ -301,6 +337,101 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!appShellRef.current) {
+      return;
+    }
+
+    appShellRef.current.style.setProperty("--bg-flow-duration", "42s");
+    appShellRef.current.style.setProperty("--bg-impulse-x", "0px");
+    appShellRef.current.style.setProperty("--bg-flow-sign", "1");
+  }, []);
+
+  useLayoutEffect(() => {
+    function syncRouteAxis() {
+      if (!pageHeaderRef.current || typeof document === "undefined") {
+        return;
+      }
+
+      const rect = pageHeaderRef.current.getBoundingClientRect();
+      const axisY = Math.round(rect.top + rect.height / 2);
+      document.documentElement.style.setProperty("--route-axis-y", `${axisY}px`);
+    }
+
+    syncRouteAxis();
+    window.addEventListener("resize", syncRouteAxis);
+
+    return () => {
+      window.removeEventListener("resize", syncRouteAxis);
+    };
+  }, [currentView]);
+
+  useLayoutEffect(() => {
+    if (routeTransitionTimerRef.current) {
+      clearTimeout(routeTransitionTimerRef.current);
+    }
+
+    if (backgroundInertiaRafRef.current) {
+      cancelAnimationFrame(backgroundInertiaRafRef.current);
+    }
+
+    const direction = currentView === "admin" ? "forward" : "backward";
+    const momentumSign = direction === "forward" ? -1 : 1;
+    const flowSign = 1;
+    setRouteTransitionDirection(direction);
+    setIsRouteAnimating(true);
+
+    if (appShellRef.current) {
+      appShellRef.current.style.setProperty("--bg-flow-sign", `${flowSign}`);
+    }
+
+    const startAt = performance.now();
+    const inertiaDuration = 1000;
+    const fastDuration = 20;
+    const impulseStart = 140 * momentumSign;
+
+    function animateInertia(now) {
+      const t = Math.min(1, (now - startAt) / inertiaDuration);
+      const eased = 1 - (1 - t) ** 3;
+
+      if (appShellRef.current) {
+        appShellRef.current.style.setProperty(
+          "--bg-flow-duration",
+          `${fastDuration + (42 - fastDuration) * eased}s`,
+        );
+        appShellRef.current.style.setProperty("--bg-impulse-x", `${impulseStart * (1 - eased)}px`);
+      }
+
+      if (t < 1) {
+        backgroundInertiaRafRef.current = requestAnimationFrame(animateInertia);
+      } else {
+        if (appShellRef.current) {
+          appShellRef.current.style.setProperty("--bg-flow-duration", "42s");
+          appShellRef.current.style.setProperty("--bg-impulse-x", "0px");
+        }
+        backgroundInertiaRafRef.current = null;
+      }
+    }
+
+    backgroundInertiaRafRef.current = requestAnimationFrame(animateInertia);
+
+    const settleDuration = 1000;
+    routeTransitionTimerRef.current = setTimeout(() => {
+      setIsRouteAnimating(false);
+      routeTransitionTimerRef.current = null;
+    }, settleDuration);
+
+    return () => {
+      if (routeTransitionTimerRef.current) {
+        clearTimeout(routeTransitionTimerRef.current);
+      }
+
+      if (backgroundInertiaRafRef.current) {
+        cancelAnimationFrame(backgroundInertiaRafRef.current);
+      }
+    };
+  }, [currentView, routeTransitionMode]);
+
+  useEffect(() => {
     async function loadWalletState() {
       if (!window.ethereum) {
         setStatus(makeStatus("error", "error", "wallet", "MetaMask is not installed in this browser."));
@@ -419,6 +550,14 @@ function App() {
 
       if (closeDetailTimeoutRef.current) {
         clearTimeout(closeDetailTimeoutRef.current);
+      }
+
+      if (routeTransitionTimerRef.current) {
+        clearTimeout(routeTransitionTimerRef.current);
+      }
+
+      if (backgroundInertiaRafRef.current) {
+        cancelAnimationFrame(backgroundInertiaRafRef.current);
       }
     };
   }, []);
@@ -722,7 +861,6 @@ function App() {
   const hasLiveCandidates = candidateMetrics.candidates.length > 0;
   const showCandidateLoading = isLoading;
   const showCandidateUnavailable = !isLoading && !electionState.electionName && !hasLiveCandidates;
-  const showCandidateEmpty = !isLoading && Boolean(electionState.electionName) && !hasLiveCandidates;
 
   function getVoteDisabledReason() {
     if (isSubmittingVote) {
@@ -807,11 +945,11 @@ function App() {
     }, 220);
   }
 
-  function handleCardDoubleClick(candidate, event) {
-    const existingTimer = clickTimeoutsRef.current[candidate.id];
+  function handleCardDoubleClick(candidate, cardId, event) {
+    const existingTimer = clickTimeoutsRef.current[cardId];
     if (existingTimer) {
       clearTimeout(existingTimer);
-      delete clickTimeoutsRef.current[candidate.id];
+      delete clickTimeoutsRef.current[cardId];
     }
 
     const sourceRect = event.currentTarget.getBoundingClientRect();
@@ -850,10 +988,147 @@ function App() {
     }, DETAIL_ANIMATION_MS);
   }
 
-  function navigateTo(view) {
-    window.location.hash = view === "admin" ? "/admin" : "/vote";
-  }
+  function renderCandidateCards(sectionKey) {
+    const hasRealCandidates = hasLiveCandidates && !showCandidateUnavailable;
+    const voteDisabledReason = hasRealCandidates
+      ? getVoteDisabledReason()
+      : "Preview mode. Deploy candidates to enable real voting.";
 
+    const candidatesToRender = hasRealCandidates
+      ? candidateMetrics.candidates
+      : ["Candidate Alpha", "Candidate Beta", "Candidate Gamma"].map((name, index) => ({
+          id: `sample-${index}`,
+          index,
+          name,
+          voteCount: 0,
+          rank: index + 1,
+          voteShare: 0,
+          isLeading: index === 0,
+          profile: getFallbackProfile(index, name),
+          isSample: true,
+        }));
+
+    return (
+      <>
+        {!hasRealCandidates && (
+          <p className="helper-text">
+            {showCandidateLoading
+              ? "Loading candidate data from the deployed contract. Showing sample cards for layout preview."
+              : showCandidateUnavailable
+                ? "Candidate data is currently unavailable. Showing sample cards for layout preview."
+                : "Showing sample candidate cards for layout preview."}
+          </p>
+        )}
+
+        <div className="poll-list">
+          {candidatesToRender.map((candidate) => {
+            const cardId = `${sectionKey}-${candidate.id}`;
+            const isFlipped = Boolean(flippedCards[cardId]);
+            const isSample = Boolean(candidate.isSample);
+
+            return (
+              <article
+                className={`poll-card interactive-card ${candidate.isLeading ? "poll-card-leading" : ""} ${
+                  isSample ? "poll-card-sample" : ""
+                } ${isFlipped ? "flipped" : ""}`}
+                key={cardId}
+                onClick={() => handleCardClick(cardId)}
+                onDoubleClick={(event) => handleCardDoubleClick(candidate, cardId, event)}
+              >
+                <div className="poll-card-inner">
+                  <div className="poll-card-face poll-card-front">
+                    <div className="poll-card-header">
+                      <div>
+                        <h3>{candidate.name}</h3>
+                        <div className="poll-card-meta-row">
+                          <span className="poll-id">Rank #{candidate.rank}</span>
+                          <span className="meta-divider" />
+                          <span className="poll-id">{candidate.profile.party}</span>
+                        </div>
+                      </div>
+                      <span className={candidate.isLeading ? "badge badge-live" : "badge"}>
+                        {candidate.voteCount} vote{candidate.voteCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+
+                    <p className="poll-face-note">Click to flip for voter details, double-click for full profile.</p>
+
+                    <div className="poll-card-footer">
+                      <button
+                        className="option-button"
+                        disabled={Boolean(voteDisabledReason)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (!isSample) {
+                            voteForCandidate(candidate.index);
+                          }
+                        }}
+                        type="button"
+                      >
+                        <span>{isSample ? "Preview card" : `Vote for ${candidate.name}`}</span>
+                        <strong>
+                          {isSample ? "Preview only" : isSubmittingVote ? "Submitting..." : "Send transaction"}
+                        </strong>
+                      </button>
+                      {voteDisabledReason && <p className="button-helper">{voteDisabledReason}</p>}
+                    </div>
+                  </div>
+
+                  <div className="poll-card-face poll-card-back">
+                    <p className="subsection-label">Voter details</p>
+                    <div className="candidate-back-grid">
+                      <p>
+                        <strong>Party:</strong> {candidate.profile.party}
+                      </p>
+                      <p>
+                        <strong>Symbol:</strong> {candidate.profile.symbol}
+                      </p>
+                      <p>
+                        <strong>Constituency:</strong> {candidate.profile.constituency}
+                      </p>
+                      <p>
+                        <strong>Key promise:</strong> {candidate.profile.keyPromise}
+                      </p>
+                    </div>
+                    <p className="poll-face-note">Click again to return. Double-click for full details.</p>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </>
+    );
+  }
+  function navigateTo(view) {
+    const nextView = view === "admin" ? "admin" : "vote";
+    if (nextView === currentView) {
+      return;
+    }
+
+    const direction = nextView === "admin" ? "forward" : "backward";
+    if (typeof document !== "undefined") {
+      document.documentElement.setAttribute("data-route-dir", direction);
+    }
+
+    const nextHash = nextView === "admin" ? "#/admin" : "#/vote";
+    const commitNavigation = () => {
+      flushSync(() => {
+        setCurrentView(nextView);
+      });
+
+      if (window.location.hash !== nextHash) {
+        window.history.pushState(null, "", nextHash);
+      }
+    };
+
+    if (supportsViewTransitions) {
+      document.startViewTransition(commitNavigation);
+      return;
+    }
+
+    commitNavigation();
+  }
   const pageTitle = currentView === "admin" ? "Admin console for the election lifecycle." : "Wallet-first voter flow with live contract data.";
   const pageDescription =
     currentView === "admin"
@@ -901,7 +1176,10 @@ function App() {
         ];
 
   return (
-    <div className="app-shell">
+    <div
+      ref={appShellRef}
+      className={`app-shell bg-mode-${backgroundMode}`}
+    >
       <div className="background-grid" />
 
       <button
@@ -969,7 +1247,8 @@ function App() {
         <p className={`context-status ${status.type}`}>{status.message}</p>
       </aside>
 
-      <header className="page-header">
+      <div className="content-stage">
+        <header ref={pageHeaderRef} className={`page-header ${!supportsViewTransitions ? `route-anim transition-${routeTransitionMode} ${isRouteAnimating ? `is-animating dir-${routeTransitionDirection}` : ""}` : ""}`}>
         <p className="eyebrow">Vox Election MVP</p>
         <h1>{heroTitle}</h1>
         <p className="hero-copy">{pageDescription}</p>
@@ -993,7 +1272,7 @@ function App() {
         </div>
       </header>
 
-      <main className="page-flow">
+      <main className={`page-flow ${!supportsViewTransitions ? `route-anim transition-${routeTransitionMode} ${isRouteAnimating ? `is-animating dir-${routeTransitionDirection}` : ""}` : ""}`}>
         <section className={`panel route-intro-panel route-intro-panel-${currentView}`}>
           <div className="route-intro-copy">
             <p className="panel-label">{currentView === "admin" ? "Admin workspace" : "Voter workspace"}</p>
@@ -1045,132 +1324,83 @@ function App() {
           </div>
         </section>
 
-        <section className="panel live-panel">
-          <div className="live-subsection live-subsection-intro">
-            <div className="panel-header">
-              <div>
-                <p className="panel-label">{currentView === "admin" ? "Admin overview" : "Live election"}</p>
-                <h2>{electionState.electionName || "Loading election..."}</h2>
-              </div>
-              <div className="panel-header-meta">
-                <p className="panel-subtext">
-                  {currentView === "admin"
-                    ? "Admin controls are separated in this route, but the smart contract remains the real authority."
-                    : "Real-time values are read directly from the deployed smart contract."}
-                </p>
-                <span className={`role-chip role-${roleState.key}`}>Current role: {roleState.label}</span>
+        {currentView === "vote" && (
+          <section className="panel election-panel live-panel">
+            <div className="live-subsection live-subsection-intro">
+              <div className="panel-header">
+                <div>
+                  <p className="panel-label">Live election</p>
+                  <h2>{electionState.electionName || "Loading election..."}</h2>
+                </div>
+                <div className="panel-header-meta">
+                  <p className="panel-subtext">Real-time values are read directly from the deployed smart contract.</p>
+                  <span className={`role-chip role-${roleState.key}`}>Current role: {roleState.label}</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="live-subsection live-subsection-meta">
-            <p className="subsection-label">Election overview metadata</p>
-            <div className="poll-meta">
-              <span>Candidates: {electionState.candidateCount}</span>
-              <span>Total votes: {candidateMetrics.totalVotes}</span>
-              <span>Chain ID: {LOCAL_ELECTION.chainId}</span>
-            </div>
-          </div>
-
-          <div className="live-subsection live-subsection-list">
-            <div className="candidate-head">
-              <p className="subsection-label">Candidate list</p>
-              <span className={electionState.votingOpen ? "badge badge-live" : "badge"}>
-                {electionState.votingOpen ? "Voting is live" : "Voting is closed"}
-              </span>
-            </div>
-
-            {showCandidateLoading && (
-              <p className="helper-text">Loading candidate data from the deployed contract...</p>
-            )}
-            {showCandidateUnavailable && (
-              <p className="helper-text">
-                Candidate data is unavailable. Make sure the Hardhat node is running, the contract is
-                deployed, and the frontend address matches the latest deployment.
-              </p>
-            )}
-            {showCandidateEmpty && (
-              <p className="helper-text">No candidates were returned by the current contract deployment.</p>
-            )}
-
-            {!showCandidateLoading && hasLiveCandidates && (
-              <div className="poll-list">
-                {candidateMetrics.candidates.map((candidate) => {
-                const isFlipped = Boolean(flippedCards[candidate.id]);
-                const voteDisabledReason = getVoteDisabledReason();
-
-                return (
-                  <article
-                    className={`poll-card interactive-card ${candidate.isLeading ? "poll-card-leading" : ""} ${
-                      isFlipped ? "flipped" : ""
-                    }`}
-                    key={candidate.id}
-                    onClick={() => handleCardClick(candidate.id)}
-                    onDoubleClick={(event) => handleCardDoubleClick(candidate, event)}
-                  >
-                    <div className="poll-card-inner">
-                      <div className="poll-card-face poll-card-front">
-                        <div className="poll-card-header">
-                          <div>
-                            <h3>{candidate.name}</h3>
-                            <div className="poll-card-meta-row">
-                              <span className="poll-id">Rank #{candidate.rank}</span>
-                              <span className="meta-divider" />
-                              <span className="poll-id">{candidate.profile.party}</span>
-                            </div>
-                          </div>
-                          <span className={candidate.isLeading ? "badge badge-live" : "badge"}>
-                            {candidate.voteCount} vote{candidate.voteCount === 1 ? "" : "s"}
-                          </span>
-                        </div>
-
-                        <p className="poll-face-note">Click to flip for voter details, double-click for full profile.</p>
-
-                        <div className="poll-card-footer">
-                          <button
-                            className="option-button"
-                            disabled={Boolean(voteDisabledReason)}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              voteForCandidate(candidate.index);
-                            }}
-                            type="button"
-                          >
-                            <span>Vote for {candidate.name}</span>
-                            <strong>{isSubmittingVote ? "Submitting..." : "Send transaction"}</strong>
-                          </button>
-                          {voteDisabledReason && <p className="button-helper">{voteDisabledReason}</p>}
-                        </div>
-                      </div>
-
-                      <div className="poll-card-face poll-card-back">
-                        <p className="subsection-label">Voter details</p>
-                        <div className="candidate-back-grid">
-                          <p>
-                            <strong>Party:</strong> {candidate.profile.party}
-                          </p>
-                          <p>
-                            <strong>Symbol:</strong> {candidate.profile.symbol}
-                          </p>
-                          <p>
-                            <strong>Constituency:</strong> {candidate.profile.constituency}
-                          </p>
-                          <p>
-                            <strong>Key promise:</strong> {candidate.profile.keyPromise}
-                          </p>
-                        </div>
-                        <p className="poll-face-note">Click again to return. Double-click for full details.</p>
-                      </div>
-                    </div>
-                  </article>
-                );
-                })}
+            <div className="live-subsection live-subsection-meta">
+              <p className="subsection-label">Election overview metadata</p>
+              <div className="poll-meta">
+                <span>Candidates: {electionState.candidateCount}</span>
+                <span>Total votes: {candidateMetrics.totalVotes}</span>
+                <span>Chain ID: {LOCAL_ELECTION.chainId}</span>
               </div>
-            )}
-            {renderStatusLine(actionStatus.vote)}
-          </div>
-        </section>
+            </div>
 
+            <div className="live-subsection live-subsection-list">
+              <div className="candidate-head">
+                <p className="subsection-label">Candidate list</p>
+                <span className={electionState.votingOpen ? "badge badge-live" : "badge"}>
+                  {electionState.votingOpen ? "Voting is live" : "Voting is closed"}
+                </span>
+              </div>
+
+              {renderCandidateCards("live")}
+              {renderStatusLine(actionStatus.vote)}
+            </div>
+          </section>
+        )}
+
+        {currentView === "admin" && (
+          <section className="panel election-panel overview-panel">
+            <div className="live-subsection live-subsection-intro">
+              <div className="panel-header">
+                <div>
+                  <p className="panel-label">Admin overview</p>
+                  <h2>{electionState.electionName || "Loading election..."}</h2>
+                </div>
+                <div className="panel-header-meta">
+                  <p className="panel-subtext">
+                    Candidate intelligence mirrored for admin context, with the same single-click flip and
+                    double-click detailed profile behavior.
+                  </p>
+                  <span className={`role-chip role-${roleState.key}`}>Current role: {roleState.label}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="live-subsection live-subsection-meta">
+              <p className="subsection-label">Admin overview metadata</p>
+              <div className="poll-meta">
+                <span>Admin: {electionState.admin ? shortenAddress(electionState.admin) : "Loading..."}</span>
+                <span>Voting: {electionState.votingOpen ? "Open" : "Closed"}</span>
+                <span>Total votes: {candidateMetrics.totalVotes}</span>
+              </div>
+            </div>
+
+            <div className="live-subsection live-subsection-list">
+              <div className="candidate-head">
+                <p className="subsection-label">Candidate list</p>
+                <span className={electionState.votingOpen ? "badge badge-live" : "badge"}>
+                  {electionState.votingOpen ? "Voting is live" : "Voting is closed"}
+                </span>
+              </div>
+
+              {renderCandidateCards("overview")}
+            </div>
+          </section>
+        )}
         {currentView === "admin" ? (
           <section className="panel admin-panel">
             <div className="panel-header">
@@ -1289,6 +1519,7 @@ function App() {
           </section>
         )}
       </main>
+      </div>
 
       {activeCandidateDetails && (
         <div
@@ -1357,3 +1588,25 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
