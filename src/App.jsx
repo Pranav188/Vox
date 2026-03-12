@@ -278,7 +278,7 @@ function App() {
           "sync",
           normalizeError(
             error,
-            "Could not read the local contract. Make sure the Hardhat node is running and Election is deployed.",
+            `Could not read the ${ELECTION_CONFIG.chainName} contract. Check the RPC, contract address, and deployment status.`,
           ),
         ),
       );

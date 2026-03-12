@@ -1,32 +1,46 @@
 # Vox
 
-Vox is being rebuilt from scratch as a learning-first decentralized voting project.
-
-The previous smart contract, deployment, and wallet integration code has been removed on purpose. The goal is to rebuild the full system step by step and understand every layer before moving on.
+Vox is a learning-first blockchain election MVP built with Solidity, Hardhat, React, ethers, and MetaMask.
 
 ## Current state
 
-- frontend design preserved
-- blockchain implementation removed
-- repo reset to a React baseline
+- election contract, tests, deployment script, and frontend are wired together
+- frontend has separate `#/vote` and `#/admin` routes
+- frontend reads ABI from the compiled Hardhat artifact
+- network selection is config-driven for localhost vs Sepolia
 
-## Rebuild sequence
+## Local development
 
-1. Learn blockchain basics without code
-2. Learn Ethereum tooling and local development workflow
-3. Add the smallest possible Solidity contract
-4. Compile, deploy, and interact with it locally
-5. Expand it into a minimal voting contract
-6. Test the rules
-7. Connect the frontend
+1. Start the local node:
+   `npx hardhat node`
+2. Deploy the contract:
+   `npx hardhat run scripts/deploy-election.js --network localhost`
+3. Run the frontend:
+   `npm run dev`
 
-## Ground rules
+## Frontend network config
 
-- no unexplained code
-- no blind copy-paste
-- no feature jumps before concepts are clear
-- the repo should remain understandable end to end
+Copy `.env.example` to `.env` and adjust values if needed.
 
-## Frontend Testing Checklist
+Available Vite env vars:
 
-- Manual wallet/role/transaction clarity checklist: `docs/frontend-manual-test-checklist.md`
+- `VITE_ELECTION_NETWORK`
+- `VITE_ELECTION_RPC_URL`
+- `VITE_ELECTION_CHAIN_ID`
+- `VITE_ELECTION_CHAIN_NAME`
+- `VITE_ELECTION_CONTRACT_ADDRESS`
+
+Defaults:
+
+- `localhost` is the default active network
+- Sepolia is prepared in the frontend config, but you must provide a deployed contract address before using it
+
+## Checks
+
+- Contract tests: `npx hardhat test`
+- Lint: `npm run lint`
+- Build: `npm run build`
+
+## Manual testing
+
+- Wallet/role/transaction checklist: `docs/frontend-manual-test-checklist.md`
