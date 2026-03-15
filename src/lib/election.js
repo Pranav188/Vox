@@ -1,5 +1,99 @@
 import { ethers } from "ethers";
-import electionArtifact from "../../artifacts/contracts/Election.sol/Election.json";
+
+const FALLBACK_ELECTION_ABI = [
+  {
+    inputs: [
+      { internalType: "string", name: "_electionName", type: "string" },
+      { internalType: "string[]", name: "candidateNames", type: "string[]" },
+    ],
+    stateMutability: "nonpayable",
+    type: "constructor",
+  },
+  {
+    inputs: [],
+    name: "admin",
+    outputs: [{ internalType: "address", name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    name: "candidates",
+    outputs: [
+      { internalType: "string", name: "name", type: "string" },
+      { internalType: "uint256", name: "voteCount", type: "uint256" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "closeVoting",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "electionName",
+    outputs: [{ internalType: "string", name: "", type: "string" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "getCandidateCount",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "", type: "address" }],
+    name: "hasVoted",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "", type: "address" }],
+    name: "isRegisteredVoter",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "openVoting",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "voter", type: "address" }],
+    name: "registerVoter",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "candidateIndex", type: "uint256" }],
+    name: "vote",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "votingOpen",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
+];
+
+const artifactModules = import.meta.glob("../../artifacts/contracts/Election.sol/Election.json", { eager: true });
+const artifactModule = Object.values(artifactModules)[0];
+const electionAbi = artifactModule?.default?.abi ?? artifactModule?.abi ?? FALLBACK_ELECTION_ABI;
 
 export const ELECTION_NETWORKS = {
   localhost: {
@@ -12,7 +106,7 @@ export const ELECTION_NETWORKS = {
     rpcUrl: "https://ethereum-sepolia-rpc.publicnode.com",
     chainId: 11155111,
     chainName: "Sepolia",
-    contractAddress: "",
+    contractAddress: "0xa78C18A821150b2077f06BB8F19C0dB44fd5AD35",
   },
 };
 
@@ -36,7 +130,7 @@ export function getReadOnlyElectionContract(config = ELECTION_CONFIG) {
 
   return new ethers.Contract(
     config.contractAddress,
-    electionArtifact.abi,
+    electionAbi,
     provider,
   );
 }
