@@ -211,11 +211,10 @@
 }
 
 .header-top-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   width: 100%;
   max-width: 980px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .logout-button {

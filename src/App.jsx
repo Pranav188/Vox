@@ -1156,11 +1156,11 @@ function App() {
       <>
       <header className="page-header">
         <div className="header-top-row">
-          <p className="eyebrow">Vox</p>
           <button className="logout-button" onClick={disconnectWallet} type="button">
             Log out
           </button>
         </div>
+        <p className="eyebrow">Vox</p>
         <h1>{heroTitle}</h1>
         <p className="hero-copy">{pageDescription}</p>
       </header>
