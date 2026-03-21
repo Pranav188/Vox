@@ -1131,9 +1131,8 @@ function App() {
       {roleState.key === "disconnected" ? (
         <div className="landing-page">
           <div className="landing-content">
-            <p className="eyebrow">Vox Election</p>
-            <h1>{electionState.electionName || "Decentralized Voting System"}</h1>
-            <p className="landing-subtitle">Connect your wallet to participate in the election</p>
+            <p className="eyebrow">Vox</p>
+            <h1>Cast one wallet-backed vote from a clean ballot page.</h1>
             <button className="primary-button landing-connect" onClick={connectWallet} type="button">
               Connect MetaMask
             </button>
@@ -1145,7 +1144,7 @@ function App() {
       ) : roleState.key === "wrong_network" ? (
         <div className="landing-page">
           <div className="landing-content">
-            <p className="eyebrow">Vox Election</p>
+            <p className="eyebrow">Vox</p>
             <h1>Wrong Network</h1>
             <p className="landing-subtitle">Please switch MetaMask to {ELECTION_CONFIG.chainName} to continue</p>
             <button className="primary-button landing-connect" onClick={connectWallet} type="button">
@@ -1157,7 +1156,7 @@ function App() {
       <>
       <header className="page-header">
         <div className="header-top-row">
-          <p className="eyebrow">Vox Election MVP</p>
+          <p className="eyebrow">Vox</p>
           <button className="logout-button" onClick={disconnectWallet} type="button">
             Log out
           </button>
