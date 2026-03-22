@@ -85,3 +85,34 @@ export async function adminRemoveAdmin(signer, walletAddress) {
   if (!res.ok) throw new Error(data.message || "Failed to remove admin");
   return data;
 }
+
+// --- Public endpoints ---
+
+export async function checkAdminStatus(walletAddress) {
+  const res = await fetch(`${API_BASE}/api/admin/check/${walletAddress}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Failed to check admin status");
+  return data;
+}
+
+export async function getLatestElection(network) {
+  const res = await fetch(`${API_BASE}/api/elections/latest?network=${network}`);
+  if (res.status === 404) return null;
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Failed to fetch latest election");
+  return data;
+}
+
+// --- Election management ---
+
+export async function adminCreateElection(signer, { electionName, candidates }) {
+  const headers = await getAdminHeaders(signer);
+  const res = await fetch(`${API_BASE}/api/admin/elections`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ electionName, candidates }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Failed to create election");
+  return data;
+}

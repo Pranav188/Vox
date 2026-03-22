@@ -110,20 +110,19 @@ export const ELECTION_NETWORKS = {
   },
 };
 
-const DEFAULT_NETWORK_KEY = import.meta.env.VITE_ELECTION_NETWORK || "localhost";
-const baseConfig = ELECTION_NETWORKS[DEFAULT_NETWORK_KEY] || ELECTION_NETWORKS.localhost;
+export const DEFAULT_NETWORK_KEY = import.meta.env.VITE_ELECTION_NETWORK || "sepolia";
 
-export const ELECTION_CONFIG = {
-  ...baseConfig,
-  rpcUrl: import.meta.env.VITE_ELECTION_RPC_URL || baseConfig.rpcUrl,
-  chainId: Number(import.meta.env.VITE_ELECTION_CHAIN_ID || baseConfig.chainId),
-  chainName: import.meta.env.VITE_ELECTION_CHAIN_NAME || baseConfig.chainName,
-  contractAddress: import.meta.env.VITE_ELECTION_CONTRACT_ADDRESS || baseConfig.contractAddress,
-};
+export function getConfigForNetwork(networkKey, contractAddressOverride) {
+  const base = ELECTION_NETWORKS[networkKey] || ELECTION_NETWORKS.sepolia;
+  return {
+    ...base,
+    contractAddress: contractAddressOverride || base.contractAddress,
+  };
+}
 
-export function getReadOnlyElectionContract(config = ELECTION_CONFIG) {
-  if (!config.contractAddress) {
-    throw new Error(`No contract address configured for ${config.chainName}.`);
+export function getReadOnlyElectionContract(config) {
+  if (!config || !config.contractAddress) {
+    throw new Error("No contract address configured.");
   }
 
   const provider = new ethers.JsonRpcProvider(config.rpcUrl);

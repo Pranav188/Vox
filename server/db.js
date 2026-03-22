@@ -44,6 +44,16 @@ function initSchema() {
       granted_by      TEXT NOT NULL,
       created_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS elections (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      contract_address TEXT UNIQUE NOT NULL,
+      election_name    TEXT NOT NULL,
+      candidates       TEXT NOT NULL,
+      network          TEXT NOT NULL DEFAULT 'sepolia',
+      created_by       TEXT NOT NULL,
+      created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 }
 
@@ -107,4 +117,26 @@ export function removeAdmin(walletAddress) {
 
 export function getAllAdmins() {
   return getDb().prepare("SELECT * FROM admins ORDER BY id").all();
+}
+
+// --- Election management ---
+
+export function insertElection({ contract_address, election_name, candidates, network, created_by }) {
+  return getDb()
+    .prepare(
+      "INSERT INTO elections (contract_address, election_name, candidates, network, created_by) VALUES (?, ?, ?, ?, ?)"
+    )
+    .run(contract_address.toLowerCase(), election_name, JSON.stringify(candidates), network, created_by.toLowerCase());
+}
+
+export function getLatestElection(network) {
+  return getDb()
+    .prepare("SELECT * FROM elections WHERE network = ? ORDER BY id DESC LIMIT 1")
+    .get(network);
+}
+
+export function getAllElections(network) {
+  return getDb()
+    .prepare("SELECT * FROM elections WHERE network = ? ORDER BY id DESC")
+    .all(network);
 }

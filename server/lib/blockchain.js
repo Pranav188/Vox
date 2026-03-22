@@ -11,6 +11,14 @@ const ARTIFACT_PATH = join(__dirname, "..", "..", "artifacts", "contracts", "Ele
 let provider;
 let adminWallet;
 let contract;
+let artifact;
+
+function getArtifact() {
+  if (!artifact) {
+    artifact = JSON.parse(readFileSync(ARTIFACT_PATH, "utf-8"));
+  }
+  return artifact;
+}
 
 function init() {
   if (contract) return;
@@ -23,12 +31,31 @@ function init() {
     throw new Error("SEPOLIA_PRIVATE_KEY is not set in .env");
   }
 
-  const artifact = JSON.parse(readFileSync(ARTIFACT_PATH, "utf-8"));
-  const abi = artifact.abi;
+  const { abi } = getArtifact();
 
   provider = new ethers.JsonRpcProvider(rpcUrl);
   adminWallet = new ethers.Wallet(privateKey, provider);
   contract = new ethers.Contract(contractAddress, abi, adminWallet);
+}
+
+export function setContractAddress(address) {
+  const { abi } = getArtifact();
+  if (!provider || !adminWallet) {
+    init();
+  }
+  contract = new ethers.Contract(address, abi, adminWallet);
+}
+
+export async function deployElection(electionName, candidates) {
+  init();
+  const { abi, bytecode } = getArtifact();
+  const factory = new ethers.ContractFactory(abi, bytecode, adminWallet);
+  const deployed = await factory.deploy(electionName, candidates);
+  await deployed.waitForDeployment();
+  const address = await deployed.getAddress();
+  // Point the in-memory contract to the newly deployed one
+  contract = new ethers.Contract(address, abi, adminWallet);
+  return address;
 }
 
 export async function registerVoterOnChain(walletAddress) {
@@ -41,6 +68,11 @@ export async function registerVoterOnChain(walletAddress) {
 export async function isVoterRegistered(walletAddress) {
   init();
   return contract.isRegisteredVoter(walletAddress);
+}
+
+export async function hasVoterVoted(walletAddress) {
+  init();
+  return contract.hasVoted(walletAddress);
 }
 
 export async function getAdminBalance() {

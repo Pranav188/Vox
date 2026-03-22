@@ -8,7 +8,10 @@ import {
   addAdmin,
   removeAdmin,
   getAllAdmins,
+  insertElection,
+  getLatestElection,
 } from "../db.js";
+import { deployElection, hasVoterVoted, setContractAddress } from "../lib/blockchain.js";
 
 const router = Router();
 
@@ -58,6 +61,26 @@ function requireAdmin(req, res, next) {
     return res.status(401).json({ message: "Signature verification failed: " + err.message });
   }
 }
+
+// --- Public endpoints (no auth) ---
+
+// GET /api/admin/check/:walletAddress - check if a wallet is admin
+router.get("/check/:walletAddress", (req, res) => {
+  try {
+    const wallet = req.params.walletAddress.toLowerCase();
+    const deployerAddress = getDeployerAddress();
+    const isDeployer = wallet === deployerAddress;
+    const isAppointedAdmin = isAdmin(wallet);
+    res.json({
+      isAdmin: isDeployer || isAppointedAdmin,
+      isDeployer,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// --- Citizen management (any admin) ---
 
 // GET /api/admin/citizens - list all citizens
 router.get("/citizens", requireAdmin, (_req, res) => {
@@ -116,6 +139,8 @@ router.delete("/citizens/:aadhaarId", requireAdmin, (req, res) => {
   }
 });
 
+// --- Admin management (deployer only) ---
+
 // GET /api/admin/admins - list appointed admins
 router.get("/admins", requireAdmin, (_req, res) => {
   try {
@@ -128,7 +153,7 @@ router.get("/admins", requireAdmin, (_req, res) => {
 });
 
 // POST /api/admin/admins - appoint a new admin (deployer only)
-router.post("/admins", requireAdmin, (req, res) => {
+router.post("/admins", requireAdmin, async (req, res) => {
   try {
     if (!req.isDeployer) {
       return res.status(403).json({ message: "Only the deployer wallet can appoint new admins" });
@@ -147,6 +172,16 @@ router.post("/admins", requireAdmin, (req, res) => {
     const deployerAddress = getDeployerAddress();
     if (walletAddress.toLowerCase() === deployerAddress) {
       return res.status(400).json({ message: "The deployer is always an admin and does not need to be appointed" });
+    }
+
+    // Check if the wallet has already voted
+    try {
+      const voted = await hasVoterVoted(walletAddress);
+      if (voted) {
+        return res.status(400).json({ message: "This wallet has already voted and cannot be appointed as admin" });
+      }
+    } catch {
+      // If the check fails (e.g. contract not reachable), allow the appointment
     }
 
     addAdmin(walletAddress, label || "", req.adminAddress);
@@ -170,6 +205,52 @@ router.delete("/admins/:walletAddress", requireAdmin, (req, res) => {
     res.json({ success: true, message: "Admin removed" });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+// --- Election management (deployer only) ---
+
+// POST /api/admin/elections - create a new election (deployer only)
+router.post("/elections", requireAdmin, async (req, res) => {
+  try {
+    if (!req.isDeployer) {
+      return res.status(403).json({ message: "Only the deployer wallet can create elections" });
+    }
+
+    const { electionName, candidates } = req.body;
+
+    if (!electionName || !electionName.trim()) {
+      return res.status(400).json({ message: "Election name is required" });
+    }
+
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      return res.status(400).json({ message: "At least one candidate is required" });
+    }
+
+    const cleanCandidates = candidates.map((c) => (typeof c === "string" ? c.trim() : "")).filter(Boolean);
+    if (cleanCandidates.length === 0) {
+      return res.status(400).json({ message: "Candidate names cannot be empty" });
+    }
+
+    const contractAddress = await deployElection(electionName.trim(), cleanCandidates);
+
+    insertElection({
+      contract_address: contractAddress,
+      election_name: electionName.trim(),
+      candidates: cleanCandidates,
+      network: "sepolia",
+      created_by: req.adminAddress,
+    });
+
+    res.json({
+      success: true,
+      contractAddress,
+      electionName: electionName.trim(),
+      candidates: cleanCandidates,
+      message: `Election "${electionName.trim()}" deployed to ${contractAddress}`,
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to deploy election: " + err.message });
   }
 });
 

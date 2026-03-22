@@ -215,6 +215,40 @@
   max-width: 980px;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+
+.network-switcher {
+  padding: 6px 12px;
+  border: 1px solid rgba(136, 129, 115, 0.35);
+  border-radius: 10px;
+  background: rgba(255, 252, 246, 0.8);
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--color-dvs-text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888173'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+
+.network-switcher:hover {
+  border-color: rgba(136, 129, 115, 0.6);
+  background-color: rgba(255, 252, 246, 1);
+}
+
+.network-switcher:focus {
+  outline: 2px solid rgba(19, 40, 30, 0.25);
+  outline-offset: 2px;
+}
+
+.landing-page .network-switcher {
+  margin-bottom: 16px;
 }
 
 .logout-button {

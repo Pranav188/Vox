@@ -7,6 +7,8 @@ import { dirname, join } from "path";
 import verifyRouter from "./routes/verify.js";
 import statusRouter from "./routes/status.js";
 import adminRouter from "./routes/admin.js";
+import { getLatestElection } from "./db.js";
+import { setContractAddress } from "./lib/blockchain.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,6 +34,28 @@ const verifyLimiter = rateLimit({
 app.use("/api/verify", verifyLimiter, verifyRouter);
 app.use("/api/status", statusRouter);
 app.use("/api/admin", adminRouter);
+
+// Public endpoint: get latest election contract address
+app.get("/api/elections/latest", (req, res) => {
+  try {
+    const network = req.query.network || "sepolia";
+    const election = getLatestElection(network);
+    if (!election) {
+      return res.status(404).json({ message: "No elections found" });
+    }
+    const candidates = JSON.parse(election.candidates);
+    // Point the blockchain module to this contract
+    setContractAddress(election.contract_address);
+    res.json({
+      contractAddress: election.contract_address,
+      electionName: election.election_name,
+      candidates,
+      createdAt: election.created_at,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 // In production, serve the built frontend
 if (isProduction) {
