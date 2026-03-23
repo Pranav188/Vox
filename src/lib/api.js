@@ -13,15 +13,23 @@ export async function verifyIdentity({ aadhaarId, fullName, dateOfBirth, walletA
 
 // --- Admin API helpers ---
 
-async function getAdminHeaders(signer) {
-  const timestamp = Date.now();
-  const message = `vox-admin-${timestamp}`;
+let _cachedAdminHeaders = null;
+let _cachedHeadersExpiry = 0;
+
+export async function getAdminHeaders(signer) {
+  const now = Date.now();
+  if (_cachedAdminHeaders && now < _cachedHeadersExpiry) {
+    return _cachedAdminHeaders;
+  }
+  const message = `vox-admin-${now}`;
   const signature = await signer.signMessage(message);
-  return {
+  _cachedAdminHeaders = {
     "Content-Type": "application/json",
     "x-admin-signature": signature,
     "x-admin-message": message,
   };
+  _cachedHeadersExpiry = now + 4 * 60 * 1000; // reuse for 4 minutes
+  return _cachedAdminHeaders;
 }
 
 export async function adminGetCitizens(signer) {
