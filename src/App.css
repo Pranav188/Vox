@@ -214,9 +214,92 @@
   width: 100%;
   max-width: 980px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   gap: 10px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(136, 129, 115, 0.35);
+  border-radius: 50%;
+  background: rgba(255, 252, 246, 0.8);
+  color: var(--color-dvs-text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.profile-button:hover {
+  background: rgba(255, 252, 246, 1);
+  border-color: rgba(136, 129, 115, 0.6);
+}
+
+.welcome-message {
+  font-size: 1rem;
+  color: var(--color-dvs-text);
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+
+.profile-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 100;
+}
+
+.profile-panel {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  width: 320px;
+  max-width: calc(100vw - 40px);
+  background: var(--color-dvs-surface, #fffcf6);
+  border: 1px solid rgba(136, 129, 115, 0.35);
+  border-radius: 12px;
+  padding: 20px;
+  z-index: 101;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+.profile-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.profile-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profile-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.profile-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+
+.profile-row strong {
+  font-size: 0.95rem;
 }
 
 .network-switcher {

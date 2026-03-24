@@ -61,6 +61,12 @@ export function findByAadhaar(aadhaarId) {
   return getDb().prepare("SELECT * FROM citizens WHERE aadhaar_id = ?").get(aadhaarId);
 }
 
+export function findByWallet(walletAddress) {
+  return getDb()
+    .prepare("SELECT * FROM citizens WHERE registered_wallet = ?")
+    .get(walletAddress.toLowerCase());
+}
+
 export function isWalletLinked(walletAddress) {
   const row = getDb()
     .prepare("SELECT id FROM citizens WHERE registered_wallet = ?")

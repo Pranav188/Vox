@@ -4,6 +4,7 @@ import "./App.css";
 import { ELECTION_NETWORKS, DEFAULT_NETWORK_KEY, getConfigForNetwork, getReadOnlyElectionContract } from "./lib/election";
 import {
   verifyIdentity,
+  getVoterProfile,
   adminAddCitizen,
   adminGetCitizens,
   adminAppointAdmin,
@@ -146,13 +147,11 @@ function App() {
   });
   const [isSubmittingAdminAction, setIsSubmittingAdminAction] = useState(false);
   const [isContextOpen, setIsContextOpen] = useState(false);
-  const [verifyForm, setVerifyForm] = useState({
-    aadhaarId: "",
-    fullName: "",
-    dateOfBirth: "",
-  });
+  const [verifyForm, setVerifyForm] = useState({ aadhaarId: "" });
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyStatus, setVerifyStatus] = useState(null);
+  const [voterProfile, setVoterProfile] = useState(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [citizenForm, setCitizenForm] = useState({
     aadhaarId: "",
     fullName: "",
@@ -491,6 +490,17 @@ function App() {
       .catch(() => setBackendAdminStatus({ isAdmin: false, isDeployer: false }));
   }, [walletState.account]);
 
+  // Fetch voter profile when registered
+  useEffect(() => {
+    if (!walletState.account || !isRegisteredVoter) {
+      setVoterProfile(null);
+      return;
+    }
+    getVoterProfile(walletState.account)
+      .then(setVoterProfile)
+      .catch(() => setVoterProfile(null));
+  }, [walletState.account, isRegisteredVoter]);
+
   // Fetch latest election from backend on mount and network change
   useEffect(() => {
     getLatestElection(activeNetwork)
@@ -686,6 +696,8 @@ function App() {
     setWalletState({ account: "", chainId: null });
     setPreviousAccount("");
     setIsRegisteredVoter(false);
+    setVoterProfile(null);
+    setIsProfileOpen(false);
     setStatus(makeStatus("info", "idle", "init", "Wallet disconnected."));
     navigateTo("vote");
   }
@@ -700,12 +712,13 @@ function App() {
     try {
       const result = await verifyIdentity({
         aadhaarId: verifyForm.aadhaarId.trim(),
-        fullName: verifyForm.fullName.trim(),
-        dateOfBirth: verifyForm.dateOfBirth,
         walletAddress: walletState.account,
       });
 
       setVerifyStatus({ type: "success", message: result.message, txHash: result.txHash });
+      if (result.citizen) {
+        setVoterProfile(result.citizen);
+      }
       await refreshVoterRole(walletState.account, walletState.chainId);
     } catch (err) {
       setVerifyStatus({ type: "error", message: err.message });
@@ -1263,14 +1276,66 @@ function App() {
               <option key={key} value={key}>{net.chainName}</option>
             ))}
           </select>
-          <button className="logout-button" onClick={disconnectWallet} type="button">
-            Log out
-          </button>
+          <div className="header-actions">
+            {voterProfile && (
+              <button
+                className="profile-button"
+                onClick={() => setIsProfileOpen((o) => !o)}
+                type="button"
+                aria-label="View profile"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
+                  <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="2"/>
+                  <path d="M4 20c0-4 4-6 8-6s8 2 8 6" fill="none" stroke="currentColor" strokeWidth="2"/>
+                </svg>
+              </button>
+            )}
+            <button className="logout-button" onClick={disconnectWallet} type="button">
+              Log out
+            </button>
+          </div>
         </div>
         <p className="eyebrow">Vox</p>
+        {voterProfile && roleState.key === "voter" && (
+          <p className="welcome-message">Welcome, {voterProfile.fullName}</p>
+        )}
         <h1>{heroTitle}</h1>
         <p className="hero-copy">{pageDescription}</p>
       </header>
+
+      {isProfileOpen && voterProfile && (
+        <>
+        <div className="profile-overlay" onClick={() => setIsProfileOpen(false)} />
+        <aside className="profile-panel">
+          <div className="profile-panel-head">
+            <p className="panel-label">Voter Profile</p>
+            <button className="context-close" onClick={() => setIsProfileOpen(false)} type="button">x</button>
+          </div>
+          <div className="profile-details">
+            <div className="profile-row">
+              <span className="profile-label">Full Name</span>
+              <strong>{voterProfile.fullName}</strong>
+            </div>
+            <div className="profile-row">
+              <span className="profile-label">Aadhaar ID</span>
+              <strong>{voterProfile.aadhaarId.replace(/(\d{4})(\d{4})(\d{4})/, "$1 $2 $3")}</strong>
+            </div>
+            <div className="profile-row">
+              <span className="profile-label">Date of Birth</span>
+              <strong>{voterProfile.dateOfBirth}</strong>
+            </div>
+            <div className="profile-row">
+              <span className="profile-label">Gender</span>
+              <strong>{voterProfile.gender}</strong>
+            </div>
+            <div className="profile-row">
+              <span className="profile-label">District</span>
+              <strong>{voterProfile.district}</strong>
+            </div>
+          </div>
+        </aside>
+        </>
+      )}
 
       <main className="page-flow">
         <section className={`panel route-intro-panel route-intro-panel-${currentView}`}>
@@ -1333,8 +1398,8 @@ function App() {
               </div>
             </div>
             <p className="panel-subtext" style={{ marginBottom: "1rem" }}>
-              Enter your Aadhaar details below to verify your identity. Once verified, your connected wallet will be
-              registered as a voter on-chain automatically.
+              Enter your Aadhaar number to verify your identity. Your details will be fetched from DigiLocker
+              and your wallet will be registered as a voter on-chain.
             </p>
             <form onSubmit={submitVerification} className="verify-form">
               <div className="form-field">
@@ -1351,33 +1416,6 @@ function App() {
                   required
                   disabled={isVerifying}
                 />
-              </div>
-              <div className="form-field">
-                <label htmlFor="full-name">Full Name</label>
-                <input
-                  id="full-name"
-                  type="text"
-                  placeholder="e.g. Priya Sharma"
-                  value={verifyForm.fullName}
-                  onChange={(e) => setVerifyForm((f) => ({ ...f, fullName: e.target.value }))}
-                  required
-                  disabled={isVerifying}
-                />
-              </div>
-              <div className="form-field">
-                <label htmlFor="dob">Date of Birth</label>
-                <input
-                  id="dob"
-                  type="date"
-                  value={verifyForm.dateOfBirth}
-                  onChange={(e) => setVerifyForm((f) => ({ ...f, dateOfBirth: e.target.value }))}
-                  required
-                  disabled={isVerifying}
-                />
-              </div>
-              <div className="form-field">
-                <label>Wallet Address</label>
-                <input type="text" value={walletState.account || ""} disabled readOnly />
               </div>
               <button type="submit" className="action-btn primary" disabled={isVerifying}>
                 {isVerifying ? "Verifying..." : "Verify & Register"}
@@ -1625,29 +1663,6 @@ function App() {
                   </div>
                 )}
 
-                {isDeployer && (
-                  <div className="admin-section">
-                    <p className="subsection-label">Voter registration</p>
-                    <form className="poll-form" onSubmit={registerVoterFromUi}>
-                      <label>
-                        Voter address
-                        <input
-                          type="text"
-                          value={adminForm.voterAddress}
-                          onChange={(event) => setAdminForm({ voterAddress: event.target.value })}
-                          placeholder="0x..."
-                          required
-                        />
-                      </label>
-                      <p className="helper-text">Use a valid wallet address on the active {electionConfig.chainName} network.</p>
-                      <button className="primary-button form-submit" disabled={Boolean(registerDisabledReason)} type="submit">
-                        Register voter
-                      </button>
-                      {registerDisabledReason && <p className="button-helper">{registerDisabledReason}</p>}
-                    </form>
-                    {renderStatusLine(actionStatus.registerVoter)}
-                  </div>
-                )}
 
                 {isDeployer && (
                   <div className="admin-section">

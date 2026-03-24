@@ -1,13 +1,21 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
-export async function verifyIdentity({ aadhaarId, fullName, dateOfBirth, walletAddress }) {
+export async function verifyIdentity({ aadhaarId, walletAddress }) {
   const res = await fetch(`${API_BASE}/api/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ aadhaarId, fullName, dateOfBirth, walletAddress }),
+    body: JSON.stringify({ aadhaarId, walletAddress }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || "Verification failed");
+  return data;
+}
+
+export async function getVoterProfile(walletAddress) {
+  const res = await fetch(`${API_BASE}/api/verify/profile/${walletAddress}`);
+  if (res.status === 404) return null;
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Failed to fetch profile");
   return data;
 }
 
