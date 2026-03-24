@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ethers } from "ethers";
 import "./App.css";
-import { ELECTION_CONFIG, getReadOnlyElectionContract } from "./lib/election";
+import { ELECTION_NETWORKS, DEFAULT_NETWORK_KEY, getConfigForNetwork, getReadOnlyElectionContract } from "./lib/election";
+import {
+  verifyIdentity,
+  getVoterProfile,
+  adminAddCitizen,
+  adminGetCitizens,
+  adminAppointAdmin,
+  adminGetAdmins,
+  adminRemoveAdmin,
+  checkAdminStatus,
+  getLatestElection,
+  adminCreateElection,
+} from "./lib/api";
 
 const learningTrack = [
   "Contract source defines election rules.",
@@ -124,17 +136,40 @@ function App() {
   );
   const [actionStatus, setActionStatus] = useState({
     vote: null,
-    registerVoter: null,
     openVoting: null,
     closeVoting: null,
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
-  const [adminForm, setAdminForm] = useState({
-    voterAddress: "",
-  });
   const [isSubmittingAdminAction, setIsSubmittingAdminAction] = useState(false);
   const [isContextOpen, setIsContextOpen] = useState(false);
+  const [verifyForm, setVerifyForm] = useState({ aadhaarId: "" });
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verifyStatus, setVerifyStatus] = useState(null);
+  const [voterProfile, setVoterProfile] = useState(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [citizenForm, setCitizenForm] = useState({
+    aadhaarId: "",
+    fullName: "",
+    dateOfBirth: "",
+    gender: "Male",
+    district: "",
+  });
+  const [citizenFormStatus, setCitizenFormStatus] = useState(null);
+  const [isCitizenSubmitting, setIsCitizenSubmitting] = useState(false);
+  const [appointForm, setAppointForm] = useState({ walletAddress: "", label: "" });
+  const [appointFormStatus, setAppointFormStatus] = useState(null);
+  const [isAppointSubmitting, setIsAppointSubmitting] = useState(false);
+  const [citizenList, setCitizenList] = useState([]);
+  const [adminList, setAdminList] = useState([]);
+  const [deployerAddress, setDeployerAddress] = useState("");
+  const [isLoadingAdminData, setIsLoadingAdminData] = useState(false);
+  const [activeNetwork, setActiveNetwork] = useState(DEFAULT_NETWORK_KEY);
+  const [contractAddressOverride, setContractAddressOverride] = useState("");
+  const [backendAdminStatus, setBackendAdminStatus] = useState({ isAdmin: false, isDeployer: false });
+  const [electionForm, setElectionForm] = useState({ electionName: "", candidates: ["", ""] });
+  const [electionFormStatus, setElectionFormStatus] = useState(null);
+  const [isCreatingElection, setIsCreatingElection] = useState(false);
   const [flippedCards, setFlippedCards] = useState({});
   const [activeCandidateDetails, setActiveCandidateDetails] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -142,13 +177,15 @@ function App() {
   const clickTimeoutsRef = useRef({});
   const closeDetailTimeoutRef = useRef(null);
 
-  const isCorrectNetwork = walletState.chainId === ELECTION_CONFIG.chainId;
-  const isAdmin =
-    walletState.account &&
-    electionState.admin &&
-    walletState.account.toLowerCase() === electionState.admin.toLowerCase();
+  const electionConfig = useMemo(
+    () => getConfigForNetwork(activeNetwork, contractAddressOverride),
+    [activeNetwork, contractAddressOverride],
+  );
+  const isCorrectNetwork = walletState.chainId === electionConfig.chainId;
+  const isAdmin = backendAdminStatus.isAdmin || backendAdminStatus.isDeployer;
+  const isDeployer = backendAdminStatus.isDeployer;
   const isAdminRouteLocked = !walletState.account || !isCorrectNetwork || !isAdmin;
-  const targetChainIdHex = ethers.toBeHex(ELECTION_CONFIG.chainId);
+  const targetChainIdHex = ethers.toBeHex(electionConfig.chainId);
 
   const roleState = useMemo(() => {
     if (!walletState.account) {
@@ -170,13 +207,22 @@ function App() {
     return { key: "viewer", label: "Viewer" };
   }, [isAdmin, isCorrectNetwork, isRegisteredVoter, walletState.account]);
 
+  // Auto-route based on role: admin goes to admin view, everyone else to voter view
+  useEffect(() => {
+    if (roleState.key === "admin") {
+      navigateTo("admin");
+    } else if (roleState.key === "voter" || roleState.key === "viewer") {
+      navigateTo("vote");
+    }
+  }, [roleState.key]);
+
   const roleGuidance = useMemo(() => {
     if (roleState.key === "disconnected") {
       return "Connect MetaMask to unlock voting and admin actions.";
     }
 
     if (roleState.key === "wrong_network") {
-      return `Switch MetaMask to ${ELECTION_CONFIG.chainName} to continue testing.`;
+      return `Switch MetaMask to ${electionConfig.chainName} to continue testing.`;
     }
 
     if (roleState.key === "admin") {
@@ -198,10 +244,10 @@ function App() {
     }
 
     if (isCorrectNetwork) {
-      return ELECTION_CONFIG.chainName;
+      return electionConfig.chainName;
     }
 
-    return `Chain ${walletState.chainId} (expected ${ELECTION_CONFIG.chainId})`;
+    return `Chain ${walletState.chainId} (expected ${electionConfig.chainId})`;
   }, [isCorrectNetwork, walletState.chainId]);
 
   const updateActionStatus = useCallback((actionKey, feedback) => {
@@ -212,7 +258,7 @@ function App() {
   }, []);
 
   const refreshVoterRole = useCallback(async (account, chainId) => {
-    if (!account || chainId !== ELECTION_CONFIG.chainId) {
+    if (!account || chainId !== electionConfig.chainId) {
       setIsRegisteredVoter(false);
       setIsResolvingRole(false);
       return;
@@ -220,7 +266,7 @@ function App() {
 
     try {
       setIsResolvingRole(true);
-      const contract = getReadOnlyElectionContract();
+      const contract = getReadOnlyElectionContract(electionConfig);
       const registered = await contract.isRegisteredVoter(account);
       setIsRegisteredVoter(Boolean(registered));
     } catch {
@@ -228,13 +274,13 @@ function App() {
     } finally {
       setIsResolvingRole(false);
     }
-  }, []);
+  }, [electionConfig]);
 
   const refreshElectionState = useCallback(async () => {
     setIsLoading(true);
 
     try {
-      const contract = getReadOnlyElectionContract();
+      const contract = getReadOnlyElectionContract(electionConfig);
       const electionName = await contract.electionName();
       const admin = await contract.admin();
       const votingOpen = await contract.votingOpen();
@@ -278,14 +324,14 @@ function App() {
           "sync",
           normalizeError(
             error,
-            `Could not read the ${ELECTION_CONFIG.chainName} contract. Check the RPC, contract address, and deployment status.`,
+            `Could not read the ${electionConfig.chainName} contract. Check the RPC, contract address, and deployment status.`,
           ),
         ),
       );
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [electionConfig]);
 
   useEffect(() => {
     refreshElectionState();
@@ -367,13 +413,13 @@ function App() {
         chainId: nextChainId,
       }));
 
-      if (nextChainId !== ELECTION_CONFIG.chainId) {
+      if (nextChainId !== electionConfig.chainId) {
         setStatus(
           makeStatus(
             "error",
             "error",
             "network",
-            `Wrong network detected. Switch to ${ELECTION_CONFIG.chainName} (${ELECTION_CONFIG.chainId}).`,
+            `Wrong network detected. Switch to ${electionConfig.chainName} (${electionConfig.chainId}).`,
           ),
         );
       } else {
@@ -382,7 +428,7 @@ function App() {
             "success",
             "idle",
             "network",
-            `${ELECTION_CONFIG.chainName} selected. Actions are available for your current role.`,
+            `${electionConfig.chainName} selected. Actions are available for your current role.`,
           ),
         );
       }
@@ -429,6 +475,39 @@ function App() {
     refreshVoterRole(walletState.account, walletState.chainId);
   }, [refreshVoterRole, walletState.account, walletState.chainId, electionState.admin]);
 
+  // Check backend admin status when wallet changes
+  useEffect(() => {
+    if (!walletState.account) {
+      setBackendAdminStatus({ isAdmin: false, isDeployer: false });
+      return;
+    }
+    checkAdminStatus(walletState.account)
+      .then(setBackendAdminStatus)
+      .catch(() => setBackendAdminStatus({ isAdmin: false, isDeployer: false }));
+  }, [walletState.account]);
+
+  // Fetch voter profile when registered
+  useEffect(() => {
+    if (!walletState.account || !isRegisteredVoter) {
+      setVoterProfile(null);
+      return;
+    }
+    getVoterProfile(walletState.account)
+      .then(setVoterProfile)
+      .catch(() => setVoterProfile(null));
+  }, [walletState.account, isRegisteredVoter]);
+
+  // Fetch latest election from backend on mount and network change
+  useEffect(() => {
+    getLatestElection(activeNetwork)
+      .then((data) => {
+        if (data && data.contractAddress) {
+          setContractAddressOverride(data.contractAddress);
+        }
+      })
+      .catch(() => {});
+  }, [activeNetwork]);
+
   useEffect(() => {
     if (!previousAccount || !walletState.account) {
       return;
@@ -450,8 +529,8 @@ function App() {
 
   function getBrowserContract(signer) {
     return new ethers.Contract(
-      ELECTION_CONFIG.contractAddress,
-      getReadOnlyElectionContract().interface,
+      electionConfig.contractAddress,
+      getReadOnlyElectionContract(electionConfig).interface,
       signer,
     );
   }
@@ -466,7 +545,7 @@ function App() {
     }
 
     if (!isCorrectNetwork) {
-      return `Switch MetaMask to ${ELECTION_CONFIG.chainName} before continuing.`;
+      return `Switch MetaMask to ${electionConfig.chainName} before continuing.`;
     }
 
     if (requiresAdmin && !isAdmin) {
@@ -552,7 +631,7 @@ function App() {
           "info",
           "pending",
           "connect",
-          `Requesting ${ELECTION_CONFIG.chainName} in MetaMask before connecting wallet...`,
+          `Requesting ${electionConfig.chainName} in MetaMask before connecting wallet...`,
         ),
       );
 
@@ -567,8 +646,8 @@ function App() {
           params: [
             {
               chainId: targetChainIdHex,
-              chainName: ELECTION_CONFIG.chainName,
-              rpcUrls: [ELECTION_CONFIG.rpcUrl],
+              chainName: electionConfig.chainName,
+              rpcUrls: [electionConfig.rpcUrl],
               nativeCurrency: {
                 name: "Ethereum",
                 symbol: "ETH",
@@ -583,7 +662,7 @@ function App() {
             "error",
             "error",
             "connect",
-            normalizeError(error, `Could not switch MetaMask to ${ELECTION_CONFIG.chainName}.`),
+            normalizeError(error, `Could not switch MetaMask to ${electionConfig.chainName}.`),
           ),
         );
         return;
@@ -594,7 +673,7 @@ function App() {
       const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
       setWalletState({
         account: accounts[0] || "",
-        chainId: ELECTION_CONFIG.chainId,
+        chainId: electionConfig.chainId,
       });
       setStatus(
         makeStatus(
@@ -606,6 +685,179 @@ function App() {
       );
     } catch (error) {
       setStatus(makeStatus("error", "error", "connect", normalizeError(error, "Wallet connection failed.")));
+    }
+  }
+
+  function disconnectWallet() {
+    setWalletState({ account: "", chainId: null });
+    setPreviousAccount("");
+    setIsRegisteredVoter(false);
+    setVoterProfile(null);
+    setIsProfileOpen(false);
+    setStatus(makeStatus("info", "idle", "init", "Wallet disconnected."));
+    navigateTo("vote");
+  }
+
+  async function submitVerification(event) {
+    event.preventDefault();
+    if (isVerifying) return;
+
+    setIsVerifying(true);
+    setVerifyStatus(null);
+
+    try {
+      const result = await verifyIdentity({
+        aadhaarId: verifyForm.aadhaarId.trim(),
+        walletAddress: walletState.account,
+      });
+
+      setVerifyStatus({ type: "success", message: result.message, txHash: result.txHash });
+      if (result.citizen) {
+        setVoterProfile(result.citizen);
+      }
+      await refreshVoterRole(walletState.account, walletState.chainId);
+    } catch (err) {
+      setVerifyStatus({ type: "error", message: err.message });
+    } finally {
+      setIsVerifying(false);
+    }
+  }
+
+  async function getMetaMaskSigner() {
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    return provider.getSigner();
+  }
+
+  async function loadAdminData() {
+    if (isLoadingAdminData) return;
+    setIsLoadingAdminData(true);
+    try {
+      const signer = await getMetaMaskSigner();
+      const [citizenData, adminData] = await Promise.all([
+        adminGetCitizens(signer),
+        adminGetAdmins(signer),
+      ]);
+      setCitizenList(citizenData.citizens);
+      setAdminList(adminData.admins);
+      setDeployerAddress(adminData.deployerAddress);
+    } catch (err) {
+      console.error("Failed to load admin data:", err);
+    } finally {
+      setIsLoadingAdminData(false);
+    }
+  }
+
+  async function submitAddCitizen(event) {
+    event.preventDefault();
+    if (isCitizenSubmitting) return;
+    setIsCitizenSubmitting(true);
+    setCitizenFormStatus(null);
+    try {
+      const signer = await getMetaMaskSigner();
+      const result = await adminAddCitizen(signer, {
+        aadhaarId: citizenForm.aadhaarId.trim(),
+        fullName: citizenForm.fullName.trim(),
+        dateOfBirth: citizenForm.dateOfBirth,
+        gender: citizenForm.gender,
+        district: citizenForm.district.trim(),
+      });
+      setCitizenFormStatus({ type: "success", message: result.message });
+      setCitizenForm({ aadhaarId: "", fullName: "", dateOfBirth: "", gender: "Male", district: "" });
+      await loadAdminData();
+    } catch (err) {
+      setCitizenFormStatus({ type: "error", message: err.message });
+    } finally {
+      setIsCitizenSubmitting(false);
+    }
+  }
+
+  async function submitAppointAdmin(event) {
+    event.preventDefault();
+    if (isAppointSubmitting) return;
+    setIsAppointSubmitting(true);
+    setAppointFormStatus(null);
+    try {
+      const signer = await getMetaMaskSigner();
+      const result = await adminAppointAdmin(signer, {
+        walletAddress: appointForm.walletAddress.trim(),
+        label: appointForm.label.trim(),
+      });
+      setAppointFormStatus({ type: "success", message: result.message });
+      setAppointForm({ walletAddress: "", label: "" });
+      await loadAdminData();
+    } catch (err) {
+      setAppointFormStatus({ type: "error", message: err.message });
+    } finally {
+      setIsAppointSubmitting(false);
+    }
+  }
+
+  async function handleRemoveAdmin(walletAddress) {
+    try {
+      const signer = await getMetaMaskSigner();
+      await adminRemoveAdmin(signer, walletAddress);
+      await loadAdminData();
+    } catch (err) {
+      setAppointFormStatus({ type: "error", message: err.message });
+    }
+  }
+
+  async function handleNetworkSwitch(event) {
+    const networkKey = event.target.value;
+    setActiveNetwork(networkKey);
+    setContractAddressOverride("");
+
+    if (window.ethereum && walletState.account) {
+      const config = getConfigForNetwork(networkKey);
+      const chainIdHex = ethers.toBeHex(config.chainId);
+      try {
+        await window.ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: chainIdHex }],
+        });
+      } catch (switchError) {
+        if (switchError.code === 4902) {
+          try {
+            await window.ethereum.request({
+              method: "wallet_addEthereumChain",
+              params: [{
+                chainId: chainIdHex,
+                chainName: config.chainName,
+                rpcUrls: [config.rpcUrl],
+                nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
+              }],
+            });
+          } catch {
+            // user rejected adding chain
+          }
+        }
+      }
+    }
+  }
+
+  async function submitCreateElection(event) {
+    event.preventDefault();
+    if (isCreatingElection) return;
+    setIsCreatingElection(true);
+    setElectionFormStatus(null);
+    try {
+      const signer = await getMetaMaskSigner();
+      const cleanCandidates = electionForm.candidates.map((c) => c.trim()).filter(Boolean);
+      if (cleanCandidates.length === 0) {
+        setElectionFormStatus({ type: "error", message: "At least one candidate is required" });
+        return;
+      }
+      const result = await adminCreateElection(signer, {
+        electionName: electionForm.electionName.trim(),
+        candidates: cleanCandidates,
+      });
+      setElectionFormStatus({ type: "success", message: result.message });
+      setContractAddressOverride(result.contractAddress);
+      setElectionForm({ electionName: "", candidates: ["", ""] });
+    } catch (err) {
+      setElectionFormStatus({ type: "error", message: err.message });
+    } finally {
+      setIsCreatingElection(false);
     }
   }
 
@@ -625,37 +877,6 @@ function App() {
       pendingMessage: `Submitting vote for candidate #${candidateIndex}...`,
       successMessage: "Vote confirmed on-chain. Live results have been refreshed.",
       contractCall: (contract) => contract.vote(candidateIndex),
-    });
-  }
-
-  async function registerVoterFromUi(event) {
-    event.preventDefault();
-
-    const guardError = getRoleGuardError({ requiresAdmin: true });
-    if (guardError) {
-      const feedback = makeStatus("error", "error", "registerVoter", guardError);
-      setStatus(feedback);
-      updateActionStatus("registerVoter", feedback);
-      return;
-    }
-
-    const voterAddress = adminForm.voterAddress.trim();
-
-    if (!ethers.isAddress(voterAddress)) {
-      const feedback = makeStatus("error", "error", "registerVoter", "Enter a valid wallet address.");
-      setStatus(feedback);
-      updateActionStatus("registerVoter", feedback);
-      return;
-    }
-
-    await executeContractAction({
-      actionKey: "registerVoter",
-      actionLabel: "Register voter",
-      pendingMessage: `Registering voter ${shortenAddress(voterAddress)}...`,
-      successMessage: "Voter registered on-chain.",
-      contractCall: (contract) => contract.registerVoter(voterAddress),
-      postSuccess: () => setAdminForm({ voterAddress: "" }),
-      adminAction: true,
     });
   }
 
@@ -736,7 +957,7 @@ function App() {
     }
 
     if (!isCorrectNetwork) {
-      return `Switch to ${ELECTION_CONFIG.chainName} before voting.`;
+      return `Switch to ${electionConfig.chainName} before voting.`;
     }
 
     if (!electionState.votingOpen) {
@@ -760,7 +981,7 @@ function App() {
     }
 
     if (!isCorrectNetwork) {
-      return `Switch to ${ELECTION_CONFIG.chainName} to use admin controls.`;
+      return `Switch to ${electionConfig.chainName} to use admin controls.`;
     }
 
     if (!isAdmin) {
@@ -906,6 +1127,7 @@ function App() {
     <div className="app-shell">
       <div className="background-grid" />
 
+      {roleState.key !== "disconnected" && roleState.key !== "wrong_network" && (
       <button
         aria-expanded={isContextOpen}
         aria-label="Open connection context"
@@ -920,7 +1142,10 @@ function App() {
           <circle cx="12" cy="19" r="1.2" />
         </svg>
       </button>
+      )}
 
+      {roleState.key !== "disconnected" && roleState.key !== "wrong_network" && (
+      <>
       <div
         aria-hidden={!isContextOpen}
         className={`context-overlay ${isContextOpen ? "open" : ""}`}
@@ -942,11 +1167,11 @@ function App() {
 
         <div className="status-row">
           <span>Network</span>
-          <strong>{ELECTION_CONFIG.chainName}</strong>
+          <strong>{electionConfig.chainName}</strong>
         </div>
         <div className="status-row">
           <span>Contract</span>
-          <strong>{ELECTION_CONFIG.contractAddress ? shortenAddress(ELECTION_CONFIG.contractAddress) : "Not set"}</strong>
+          <strong>{electionConfig.contractAddress ? shortenAddress(electionConfig.contractAddress) : "Not set"}</strong>
         </div>
         <div className="status-row">
           <span>Admin</span>
@@ -970,30 +1195,112 @@ function App() {
         </button>
         <p className={`context-status ${status.type}`}>{status.message}</p>
       </aside>
+      </>
+      )}
 
+      {roleState.key === "disconnected" ? (
+        <div className="landing-page">
+          <div className="landing-content">
+            <select className="network-switcher" value={activeNetwork} onChange={handleNetworkSwitch}>
+              {Object.entries(ELECTION_NETWORKS).map(([key, net]) => (
+                <option key={key} value={key}>{net.chainName}</option>
+              ))}
+            </select>
+            <p className="eyebrow">Vox</p>
+            <h1>Cast one wallet-backed vote from a clean ballot page.</h1>
+            <button className="primary-button landing-connect" onClick={connectWallet} type="button">
+              Connect MetaMask
+            </button>
+            {status.type === "error" && (
+              <p className="landing-error">{status.message}</p>
+            )}
+          </div>
+        </div>
+      ) : roleState.key === "wrong_network" ? (
+        <div className="landing-page">
+          <div className="landing-content">
+            <select className="network-switcher" value={activeNetwork} onChange={handleNetworkSwitch}>
+              {Object.entries(ELECTION_NETWORKS).map(([key, net]) => (
+                <option key={key} value={key}>{net.chainName}</option>
+              ))}
+            </select>
+            <p className="eyebrow">Vox</p>
+            <h1>Wrong Network</h1>
+            <p className="landing-subtitle">Please switch MetaMask to {electionConfig.chainName} to continue</p>
+            <button className="primary-button landing-connect" onClick={connectWallet} type="button">
+              Switch to {electionConfig.chainName}
+            </button>
+          </div>
+        </div>
+      ) : (
+      <>
       <header className="page-header">
-        <p className="eyebrow">Vox Election MVP</p>
+        <div className="header-top-row">
+          <select className="network-switcher" value={activeNetwork} onChange={handleNetworkSwitch}>
+            {Object.entries(ELECTION_NETWORKS).map(([key, net]) => (
+              <option key={key} value={key}>{net.chainName}</option>
+            ))}
+          </select>
+          <div className="header-actions">
+            {voterProfile && (
+              <button
+                className="profile-button"
+                onClick={() => setIsProfileOpen((o) => !o)}
+                type="button"
+                aria-label="View profile"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
+                  <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="2"/>
+                  <path d="M4 20c0-4 4-6 8-6s8 2 8 6" fill="none" stroke="currentColor" strokeWidth="2"/>
+                </svg>
+              </button>
+            )}
+            <button className="logout-button" onClick={disconnectWallet} type="button">
+              Log out
+            </button>
+          </div>
+        </div>
+        <p className="eyebrow">Vox</p>
+        {voterProfile && roleState.key === "voter" && (
+          <p className="welcome-message">Welcome, {voterProfile.fullName}</p>
+        )}
         <h1>{heroTitle}</h1>
         <p className="hero-copy">{pageDescription}</p>
-        <div className="route-switcher" role="tablist" aria-label="Application view">
-          <button
-            aria-selected={currentView === "vote"}
-            className={`route-tab ${currentView === "vote" ? "active" : ""}`}
-            onClick={() => navigateTo("vote")}
-            type="button"
-          >
-            Voter view
-          </button>
-          <button
-            aria-selected={currentView === "admin"}
-            className={`route-tab ${currentView === "admin" ? "active" : ""}`}
-            onClick={() => navigateTo("admin")}
-            type="button"
-          >
-            Admin view
-          </button>
-        </div>
       </header>
+
+      {isProfileOpen && voterProfile && (
+        <>
+        <div className="profile-overlay" onClick={() => setIsProfileOpen(false)} />
+        <aside className="profile-panel">
+          <div className="profile-panel-head">
+            <p className="panel-label">Voter Profile</p>
+            <button className="context-close" onClick={() => setIsProfileOpen(false)} type="button">x</button>
+          </div>
+          <div className="profile-details">
+            <div className="profile-row">
+              <span className="profile-label">Full Name</span>
+              <strong>{voterProfile.fullName}</strong>
+            </div>
+            <div className="profile-row">
+              <span className="profile-label">Aadhaar ID</span>
+              <strong>{voterProfile.aadhaarId.replace(/(\d{4})(\d{4})(\d{4})/, "$1 $2 $3")}</strong>
+            </div>
+            <div className="profile-row">
+              <span className="profile-label">Date of Birth</span>
+              <strong>{voterProfile.dateOfBirth}</strong>
+            </div>
+            <div className="profile-row">
+              <span className="profile-label">Gender</span>
+              <strong>{voterProfile.gender}</strong>
+            </div>
+            <div className="profile-row">
+              <span className="profile-label">District</span>
+              <strong>{voterProfile.district}</strong>
+            </div>
+          </div>
+        </aside>
+        </>
+      )}
 
       <main className="page-flow">
         <section className={`panel route-intro-panel route-intro-panel-${currentView}`}>
@@ -1047,6 +1354,51 @@ function App() {
           </div>
         </section>
 
+        {currentView !== "admin" && roleState.key === "viewer" && (
+          <section className="panel verify-panel" aria-label="Identity verification">
+            <div className="panel-header">
+              <div>
+                <p className="panel-label">DigiLocker verification</p>
+                <h2>Verify your identity to register as a voter</h2>
+              </div>
+            </div>
+            <p className="panel-subtext" style={{ marginBottom: "1rem" }}>
+              Enter your Aadhaar number to verify your identity. Your details will be fetched from DigiLocker
+              and your wallet will be registered as a voter on-chain.
+            </p>
+            <form onSubmit={submitVerification} className="verify-form">
+              <div className="form-field">
+                <label htmlFor="aadhaar-id">Aadhaar ID (12 digits)</label>
+                <input
+                  id="aadhaar-id"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="\d{12}"
+                  maxLength={12}
+                  placeholder="e.g. 234567890123"
+                  value={verifyForm.aadhaarId}
+                  onChange={(e) => setVerifyForm((f) => ({ ...f, aadhaarId: e.target.value }))}
+                  required
+                  disabled={isVerifying}
+                />
+              </div>
+              <button type="submit" className="action-btn primary" disabled={isVerifying}>
+                {isVerifying ? "Verifying..." : "Verify & Register"}
+              </button>
+            </form>
+            {verifyStatus && (
+              <div className={`verify-feedback verify-${verifyStatus.type}`} style={{ marginTop: "1rem" }}>
+                <p>{verifyStatus.message}</p>
+                {verifyStatus.txHash && (
+                  <p className="helper-text">
+                    Tx: <a href={`https://sepolia.etherscan.io/tx/${verifyStatus.txHash}`} target="_blank" rel="noopener noreferrer">{verifyStatus.txHash.slice(0, 16)}...</a>
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
         <section className="panel live-panel">
           <div className="live-subsection live-subsection-intro">
             <div className="panel-header">
@@ -1070,7 +1422,7 @@ function App() {
             <div className="poll-meta">
               <span>Candidates: {electionState.candidateCount}</span>
               <span>Total votes: {candidateMetrics.totalVotes}</span>
-              <span>Chain ID: {ELECTION_CONFIG.chainId}</span>
+              <span>Chain ID: {electionConfig.chainId}</span>
             </div>
           </div>
 
@@ -1196,12 +1548,10 @@ function App() {
                 <p className="subsection-label">Admin access required</p>
                 <p className="helper-text">
                   {!walletState.account
-                    ? "Connect MetaMask with the deployer wallet to unlock admin controls."
+                    ? "Connect MetaMask with an admin wallet to unlock controls."
                     : !isCorrectNetwork
-                      ? `Switch MetaMask to ${ELECTION_CONFIG.chainName}, then reconnect with the deployer wallet.`
-                      : electionState.admin
-                        ? `This wallet is not the admin. Switch to ${shortenAddress(electionState.admin)} to access election controls.`
-                        : "This wallet is not the admin for the active deployment."}
+                      ? `Switch MetaMask to ${electionConfig.chainName}, then reconnect with an admin wallet.`
+                      : "This wallet is not authorized as an admin."}
                 </p>
                 {!walletState.account && (
                   <button className="primary-button" onClick={connectWallet} type="button">
@@ -1211,58 +1561,300 @@ function App() {
               </div>
             ) : (
               <>
-                <div className="admin-section">
-                  <p className="subsection-label">Voter registration</p>
-                  <form className="poll-form" onSubmit={registerVoterFromUi}>
-                    <label>
-                      Voter address
-                      <input
-                        type="text"
-                        value={adminForm.voterAddress}
-                        onChange={(event) => setAdminForm({ voterAddress: event.target.value })}
-                        placeholder="0x..."
-                        required
-                      />
-                    </label>
-                    <p className="helper-text">Use a valid wallet address on the active {ELECTION_CONFIG.chainName} network.</p>
-                    <button className="primary-button form-submit" disabled={Boolean(registerDisabledReason)} type="submit">
-                      Register voter
-                    </button>
-                    {registerDisabledReason && <p className="button-helper">{registerDisabledReason}</p>}
-                  </form>
-                  {renderStatusLine(actionStatus.registerVoter)}
-                </div>
-
-                <div className="admin-section">
-                  <p className="subsection-label">Admin actions</p>
-                  <div className="admin-action-row">
-                    <div>
+                {isDeployer && (
+                  <div className="admin-section">
+                    <p className="subsection-label">Create new election</p>
+                    <form className="poll-form" onSubmit={submitCreateElection}>
+                      <label>
+                        Election name
+                        <input
+                          type="text"
+                          placeholder="e.g. Student Council Election 2026"
+                          value={electionForm.electionName}
+                          onChange={(e) => setElectionForm((f) => ({ ...f, electionName: e.target.value }))}
+                          required
+                          disabled={isCreatingElection}
+                        />
+                      </label>
+                      <p className="subsection-label" style={{ marginTop: "8px" }}>Candidates</p>
+                      {electionForm.candidates.map((candidate, idx) => (
+                        <div key={idx} style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          <input
+                            type="text"
+                            placeholder={`Candidate ${idx + 1}`}
+                            value={candidate}
+                            onChange={(e) => {
+                              const updated = [...electionForm.candidates];
+                              updated[idx] = e.target.value;
+                              setElectionForm((f) => ({ ...f, candidates: updated }));
+                            }}
+                            disabled={isCreatingElection}
+                            style={{ flex: 1 }}
+                          />
+                          {electionForm.candidates.length > 1 && (
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              style={{ padding: "6px 12px", fontSize: "0.8rem" }}
+                              onClick={() => {
+                                const updated = electionForm.candidates.filter((_, i) => i !== idx);
+                                setElectionForm((f) => ({ ...f, candidates: updated }));
+                              }}
+                              disabled={isCreatingElection}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      ))}
                       <button
-                        className="secondary-button"
-                        disabled={Boolean(openVotingDisabledReason)}
-                        onClick={openVotingFromUi}
                         type="button"
+                        className="secondary-button"
+                        onClick={() => setElectionForm((f) => ({ ...f, candidates: [...f.candidates, ""] }))}
+                        disabled={isCreatingElection}
+                        style={{ marginTop: "4px" }}
                       >
-                        Open voting
+                        + Add candidate
                       </button>
-                      {openVotingDisabledReason && <p className="button-helper">{openVotingDisabledReason}</p>}
-                      {renderStatusLine(actionStatus.openVoting, "inline-compact")}
-                    </div>
+                      <button className="primary-button form-submit" disabled={isCreatingElection} type="submit">
+                        {isCreatingElection ? "Deploying to Sepolia..." : "Deploy election"}
+                      </button>
+                    </form>
+                    {electionFormStatus && (
+                      <div className={`verify-feedback verify-${electionFormStatus.type}`} style={{ marginTop: "8px" }}>
+                        <p>{electionFormStatus.message}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                    <div>
-                      <button
-                        className="secondary-button"
-                        disabled={Boolean(closeVotingDisabledReason)}
-                        onClick={closeVotingFromUi}
-                        type="button"
-                      >
-                        Close voting
-                      </button>
-                      {closeVotingDisabledReason && <p className="button-helper">{closeVotingDisabledReason}</p>}
-                      {renderStatusLine(actionStatus.closeVoting, "inline-compact")}
+
+                {isDeployer && (
+                  <div className="admin-section">
+                    <p className="subsection-label">Admin actions</p>
+                    <div className="admin-action-row">
+                      <div>
+                        <button
+                          className="secondary-button"
+                          disabled={Boolean(openVotingDisabledReason)}
+                          onClick={openVotingFromUi}
+                          type="button"
+                        >
+                          Open voting
+                        </button>
+                        {openVotingDisabledReason && <p className="button-helper">{openVotingDisabledReason}</p>}
+                        {renderStatusLine(actionStatus.openVoting, "inline-compact")}
+                      </div>
+
+                      <div>
+                        <button
+                          className="secondary-button"
+                          disabled={Boolean(closeVotingDisabledReason)}
+                          onClick={closeVotingFromUi}
+                          type="button"
+                        >
+                          Close voting
+                        </button>
+                        {closeVotingDisabledReason && <p className="button-helper">{closeVotingDisabledReason}</p>}
+                        {renderStatusLine(actionStatus.closeVoting, "inline-compact")}
+                      </div>
                     </div>
                   </div>
+                )}
+
+                <div className="admin-section">
+                  <div className="admin-section-head">
+                    <p className="subsection-label">DigiLocker management</p>
+                    <button
+                      className="secondary-button"
+                      onClick={loadAdminData}
+                      disabled={isLoadingAdminData}
+                      type="button"
+                    >
+                      {isLoadingAdminData ? "Loading..." : "Load data"}
+                    </button>
+                  </div>
+
+                  <form className="poll-form" onSubmit={submitAddCitizen}>
+                    <p className="helper-text" style={{ marginBottom: "4px" }}>Add a citizen to the DigiLocker database</p>
+                    <label>
+                      Aadhaar ID (12 digits)
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d{12}"
+                        maxLength={12}
+                        placeholder="e.g. 234567890123"
+                        value={citizenForm.aadhaarId}
+                        onChange={(e) => setCitizenForm((f) => ({ ...f, aadhaarId: e.target.value }))}
+                        required
+                        disabled={isCitizenSubmitting}
+                      />
+                    </label>
+                    <label>
+                      Full Name
+                      <input
+                        type="text"
+                        placeholder="e.g. Priya Sharma"
+                        value={citizenForm.fullName}
+                        onChange={(e) => setCitizenForm((f) => ({ ...f, fullName: e.target.value }))}
+                        required
+                        disabled={isCitizenSubmitting}
+                      />
+                    </label>
+                    <label>
+                      Date of Birth
+                      <input
+                        type="date"
+                        value={citizenForm.dateOfBirth}
+                        onChange={(e) => setCitizenForm((f) => ({ ...f, dateOfBirth: e.target.value }))}
+                        required
+                        disabled={isCitizenSubmitting}
+                      />
+                    </label>
+                    <label>
+                      Gender
+                      <select
+                        value={citizenForm.gender}
+                        onChange={(e) => setCitizenForm((f) => ({ ...f, gender: e.target.value }))}
+                        disabled={isCitizenSubmitting}
+                      >
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </label>
+                    <label>
+                      District
+                      <input
+                        type="text"
+                        placeholder="e.g. Central Delhi"
+                        value={citizenForm.district}
+                        onChange={(e) => setCitizenForm((f) => ({ ...f, district: e.target.value }))}
+                        required
+                        disabled={isCitizenSubmitting}
+                      />
+                    </label>
+                    <button className="primary-button form-submit" disabled={isCitizenSubmitting} type="submit">
+                      {isCitizenSubmitting ? "Adding..." : "Add citizen"}
+                    </button>
+                  </form>
+                  {citizenFormStatus && (
+                    <div className={`verify-feedback verify-${citizenFormStatus.type}`} style={{ marginTop: "8px" }}>
+                      <p>{citizenFormStatus.message}</p>
+                    </div>
+                  )}
+
+                  {citizenList.length > 0 && (
+                    <div className="admin-data-table" style={{ marginTop: "12px" }}>
+                      <p className="helper-text">{citizenList.length} citizens in database</p>
+                      <div className="data-table-scroll">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Aadhaar</th>
+                              <th>Name</th>
+                              <th>DOB</th>
+                              <th>District</th>
+                              <th>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {citizenList.map((c) => (
+                              <tr key={c.aadhaar_id}>
+                                <td>{c.aadhaar_id}</td>
+                                <td>{c.full_name}</td>
+                                <td>{c.date_of_birth}</td>
+                                <td>{c.district}</td>
+                                <td>{c.registered_wallet ? "Verified" : "Pending"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
+
+                {isDeployer && (
+                <div className="admin-section">
+                  <p className="subsection-label">Admin management</p>
+                  <form className="poll-form" onSubmit={submitAppointAdmin}>
+                    <p className="helper-text" style={{ marginBottom: "4px" }}>Appoint a wallet as admin (deployer only)</p>
+                    <label>
+                      Wallet address
+                      <input
+                        type="text"
+                        placeholder="0x..."
+                        value={appointForm.walletAddress}
+                        onChange={(e) => setAppointForm((f) => ({ ...f, walletAddress: e.target.value }))}
+                        required
+                        disabled={isAppointSubmitting}
+                      />
+                    </label>
+                    <label>
+                      Label (optional)
+                      <input
+                        type="text"
+                        placeholder="e.g. Co-admin, Election Officer"
+                        value={appointForm.label}
+                        onChange={(e) => setAppointForm((f) => ({ ...f, label: e.target.value }))}
+                        disabled={isAppointSubmitting}
+                      />
+                    </label>
+                    <button className="primary-button form-submit" disabled={isAppointSubmitting} type="submit">
+                      {isAppointSubmitting ? "Appointing..." : "Appoint admin"}
+                    </button>
+                  </form>
+                  {appointFormStatus && (
+                    <div className={`verify-feedback verify-${appointFormStatus.type}`} style={{ marginTop: "8px" }}>
+                      <p>{appointFormStatus.message}</p>
+                    </div>
+                  )}
+
+                  {(adminList.length > 0 || deployerAddress) && (
+                    <div className="admin-data-table" style={{ marginTop: "12px" }}>
+                      <p className="helper-text">Current admins</p>
+                      <div className="data-table-scroll">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Wallet</th>
+                              <th>Label</th>
+                              <th>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {deployerAddress && (
+                              <tr>
+                                <td title={deployerAddress}>{deployerAddress.slice(0, 8)}...{deployerAddress.slice(-6)}</td>
+                                <td>Deployer (permanent)</td>
+                                <td></td>
+                              </tr>
+                            )}
+                            {adminList.map((a) => (
+                              <tr key={a.wallet_address}>
+                                <td title={a.wallet_address}>{a.wallet_address.slice(0, 8)}...{a.wallet_address.slice(-6)}</td>
+                                <td>{a.label || "Admin"}</td>
+                                <td>
+                                  <button
+                                    className="secondary-button"
+                                    onClick={() => handleRemoveAdmin(a.wallet_address)}
+                                    type="button"
+                                    style={{ padding: "4px 10px", fontSize: "0.8rem" }}
+                                  >
+                                    Remove
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                )}
               </>
             )}
 
@@ -1375,6 +1967,8 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

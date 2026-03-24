@@ -7,11 +7,20 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:localhost": "hardhat run scripts/deploy-election.js",
+    "deploy:sepolia": "hardhat run scripts/deploy-sepolia.js",
+    "server": "node server/index.js",
+    "seed": "node server/seed.js",
+    "start": "npm run build && node server/index.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
+    "better-sqlite3": "^12.8.0",
+    "cors": "^2.8.6",
     "ethers": "^6.16.0",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwindcss": "^4.1.18"
@@ -24,6 +33,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "chai": "^6.2.2",
+    "dotenv": "^17.3.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
