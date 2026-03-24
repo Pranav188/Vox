@@ -7,7 +7,6 @@ import {
   getVoterProfile,
   adminAddCitizen,
   adminGetCitizens,
-  adminRegisterVoter,
   adminAppointAdmin,
   adminGetAdmins,
   adminRemoveAdmin,
@@ -137,15 +136,11 @@ function App() {
   );
   const [actionStatus, setActionStatus] = useState({
     vote: null,
-    registerVoter: null,
     openVoting: null,
     closeVoting: null,
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
-  const [adminForm, setAdminForm] = useState({
-    voterAddress: "",
-  });
   const [isSubmittingAdminAction, setIsSubmittingAdminAction] = useState(false);
   const [isContextOpen, setIsContextOpen] = useState(false);
   const [verifyForm, setVerifyForm] = useState({ aadhaarId: "" });
@@ -162,9 +157,6 @@ function App() {
   });
   const [citizenFormStatus, setCitizenFormStatus] = useState(null);
   const [isCitizenSubmitting, setIsCitizenSubmitting] = useState(false);
-  const [registerVoterForm, setRegisterVoterForm] = useState({ aadhaarId: "", walletAddress: "" });
-  const [registerVoterStatus, setRegisterVoterStatus] = useState(null);
-  const [isRegisteringVoter, setIsRegisteringVoter] = useState(false);
   const [appointForm, setAppointForm] = useState({ walletAddress: "", label: "" });
   const [appointFormStatus, setAppointFormStatus] = useState(null);
   const [isAppointSubmitting, setIsAppointSubmitting] = useState(false);
@@ -779,27 +771,6 @@ function App() {
     }
   }
 
-  async function submitRegisterVoter(event) {
-    event.preventDefault();
-    if (isRegisteringVoter) return;
-    setIsRegisteringVoter(true);
-    setRegisterVoterStatus(null);
-    try {
-      const signer = await getMetaMaskSigner();
-      const result = await adminRegisterVoter(signer, {
-        aadhaarId: registerVoterForm.aadhaarId.trim(),
-        walletAddress: registerVoterForm.walletAddress.trim(),
-      });
-      setRegisterVoterStatus({ type: "success", message: result.message, txHash: result.txHash });
-      setRegisterVoterForm({ aadhaarId: "", walletAddress: "" });
-      await loadAdminData();
-    } catch (err) {
-      setRegisterVoterStatus({ type: "error", message: err.message });
-    } finally {
-      setIsRegisteringVoter(false);
-    }
-  }
-
   async function submitAppointAdmin(event) {
     event.preventDefault();
     if (isAppointSubmitting) return;
@@ -906,37 +877,6 @@ function App() {
       pendingMessage: `Submitting vote for candidate #${candidateIndex}...`,
       successMessage: "Vote confirmed on-chain. Live results have been refreshed.",
       contractCall: (contract) => contract.vote(candidateIndex),
-    });
-  }
-
-  async function registerVoterFromUi(event) {
-    event.preventDefault();
-
-    const guardError = getRoleGuardError({ requiresAdmin: true });
-    if (guardError) {
-      const feedback = makeStatus("error", "error", "registerVoter", guardError);
-      setStatus(feedback);
-      updateActionStatus("registerVoter", feedback);
-      return;
-    }
-
-    const voterAddress = adminForm.voterAddress.trim();
-
-    if (!ethers.isAddress(voterAddress)) {
-      const feedback = makeStatus("error", "error", "registerVoter", "Enter a valid wallet address.");
-      setStatus(feedback);
-      updateActionStatus("registerVoter", feedback);
-      return;
-    }
-
-    await executeContractAction({
-      actionKey: "registerVoter",
-      actionLabel: "Register voter",
-      pendingMessage: `Registering voter ${shortenAddress(voterAddress)}...`,
-      successMessage: "Voter registered on-chain.",
-      contractCall: (contract) => contract.registerVoter(voterAddress),
-      postSuccess: () => setAdminForm({ voterAddress: "" }),
-      adminAction: true,
     });
   }
 
@@ -1721,51 +1661,6 @@ function App() {
                     </div>
                   </div>
                 )}
-
-                <div className="admin-section">
-                  <p className="subsection-label">Register voter by Aadhaar</p>
-                  <form className="poll-form" onSubmit={submitRegisterVoter}>
-                    <p className="helper-text" style={{ marginBottom: "4px" }}>Look up a citizen by Aadhaar and register their wallet as a voter on-chain</p>
-                    <label>
-                      Aadhaar ID (12 digits)
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="\d{12}"
-                        maxLength={12}
-                        placeholder="e.g. 234567890123"
-                        value={registerVoterForm.aadhaarId}
-                        onChange={(e) => setRegisterVoterForm((f) => ({ ...f, aadhaarId: e.target.value }))}
-                        required
-                        disabled={isRegisteringVoter}
-                      />
-                    </label>
-                    <label>
-                      Wallet address
-                      <input
-                        type="text"
-                        placeholder="0x..."
-                        value={registerVoterForm.walletAddress}
-                        onChange={(e) => setRegisterVoterForm((f) => ({ ...f, walletAddress: e.target.value }))}
-                        required
-                        disabled={isRegisteringVoter}
-                      />
-                    </label>
-                    <button className="primary-button form-submit" disabled={isRegisteringVoter} type="submit">
-                      {isRegisteringVoter ? "Registering..." : "Register voter"}
-                    </button>
-                  </form>
-                  {registerVoterStatus && (
-                    <div className={`verify-feedback verify-${registerVoterStatus.type}`} style={{ marginTop: "8px" }}>
-                      <p>{registerVoterStatus.message}</p>
-                      {registerVoterStatus.txHash && (
-                        <p className="helper-text">
-                          Tx: <a href={`https://sepolia.etherscan.io/tx/${registerVoterStatus.txHash}`} target="_blank" rel="noopener noreferrer">{registerVoterStatus.txHash.slice(0, 16)}...</a>
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
 
                 <div className="admin-section">
                   <div className="admin-section-head">
