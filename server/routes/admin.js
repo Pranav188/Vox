@@ -4,6 +4,9 @@ import {
   insertCitizen,
   getAllCitizens,
   deleteCitizen,
+  findByAadhaar,
+  isWalletLinked,
+  linkWallet,
   isAdmin,
   addAdmin,
   removeAdmin,
@@ -11,7 +14,7 @@ import {
   insertElection,
   getLatestElection,
 } from "../db.js";
-import { deployElection, hasVoterVoted, setContractAddress } from "../lib/blockchain.js";
+import { deployElection, hasVoterVoted, registerVoterOnChain, isVoterRegistered, setContractAddress } from "../lib/blockchain.js";
 
 const router = Router();
 
@@ -136,6 +139,54 @@ router.delete("/citizens/:aadhaarId", requireAdmin, (req, res) => {
     res.json({ success: true, message: "Citizen removed from DigiLocker" });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/admin/register-voter - register a voter by Aadhaar (admin enters Aadhaar + wallet)
+router.post("/register-voter", requireAdmin, async (req, res) => {
+  try {
+    const { aadhaarId, walletAddress } = req.body;
+
+    if (!aadhaarId || !walletAddress) {
+      return res.status(400).json({ message: "Aadhaar ID and wallet address are required" });
+    }
+
+    if (!/^\d{12}$/.test(aadhaarId)) {
+      return res.status(400).json({ message: "Aadhaar ID must be exactly 12 digits" });
+    }
+
+    if (!ethers.isAddress(walletAddress)) {
+      return res.status(400).json({ message: "Invalid Ethereum wallet address" });
+    }
+
+    const citizen = findByAadhaar(aadhaarId);
+    if (!citizen) {
+      return res.status(404).json({ message: "Citizen not found in DigiLocker database" });
+    }
+
+    if (citizen.registered_wallet) {
+      return res.status(409).json({ message: `This Aadhaar is already linked to wallet ${citizen.registered_wallet.slice(0, 8)}...` });
+    }
+
+    if (isWalletLinked(walletAddress)) {
+      return res.status(409).json({ message: "This wallet is already linked to another citizen" });
+    }
+
+    const alreadyRegistered = await isVoterRegistered(walletAddress);
+    if (alreadyRegistered) {
+      return res.status(409).json({ message: "This wallet is already registered as a voter on-chain" });
+    }
+
+    const txHash = await registerVoterOnChain(walletAddress);
+    linkWallet(aadhaarId, walletAddress);
+
+    res.json({
+      success: true,
+      txHash,
+      message: `${citizen.full_name} registered as voter (${walletAddress.slice(0, 8)}...)`,
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Registration failed: " + err.message });
   }
 });
 

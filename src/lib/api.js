@@ -102,6 +102,18 @@ export async function adminRemoveAdmin(signer, walletAddress) {
   return data;
 }
 
+export async function adminRegisterVoter(signer, { aadhaarId, walletAddress }) {
+  const headers = await getAdminHeaders(signer);
+  const res = await fetch(`${API_BASE}/api/admin/register-voter`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ aadhaarId, walletAddress }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Failed to register voter");
+  return data;
+}
+
 // --- Public endpoints ---
 
 export async function checkAdminStatus(walletAddress) {
