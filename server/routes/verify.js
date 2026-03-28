@@ -5,11 +5,17 @@ import { registerVoterOnChain, isVoterRegistered } from "../lib/blockchain.js";
 
 const router = Router();
 
+// In-flight lock to prevent TOCTOU race between check and on-chain registration
+const inFlightAadhaar = new Set();
+const inFlightWallets = new Set();
+
 // POST /api/verify - verify Aadhaar and register wallet as voter
 router.post("/", async (req, res) => {
-  try {
-    const { aadhaarId, walletAddress } = req.body;
+  const { aadhaarId, walletAddress } = req.body;
+  let lockedAadhaar = false;
+  let lockedWallet = false;
 
+  try {
     if (!aadhaarId || !walletAddress) {
       return res.status(400).json({ message: "Aadhaar ID and wallet address are required" });
     }
@@ -21,6 +27,20 @@ router.post("/", async (req, res) => {
     if (!ethers.isAddress(walletAddress)) {
       return res.status(400).json({ message: "Invalid Ethereum wallet address" });
     }
+
+    const walletLower = walletAddress.toLowerCase();
+
+    // Acquire in-flight locks
+    if (inFlightAadhaar.has(aadhaarId)) {
+      return res.status(409).json({ message: "Registration already in progress for this Aadhaar" });
+    }
+    if (inFlightWallets.has(walletLower)) {
+      return res.status(409).json({ message: "Registration already in progress for this wallet" });
+    }
+    inFlightAadhaar.add(aadhaarId);
+    lockedAadhaar = true;
+    inFlightWallets.add(walletLower);
+    lockedWallet = true;
 
     const citizen = findByAadhaar(aadhaarId);
     if (!citizen) {
@@ -57,7 +77,10 @@ router.post("/", async (req, res) => {
     });
   } catch (err) {
     console.error("Verification error:", err);
-    return res.status(500).json({ message: "Verification failed: " + err.message });
+    return res.status(500).json({ message: "Verification failed. Please try again." });
+  } finally {
+    if (lockedAadhaar) inFlightAadhaar.delete(aadhaarId);
+    if (lockedWallet) inFlightWallets.delete(walletAddress?.toLowerCase());
   }
 });
 
@@ -76,8 +99,8 @@ router.get("/profile/:walletAddress", (req, res) => {
       gender: citizen.gender,
       district: citizen.district,
     });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch {
+    res.status(500).json({ message: "Failed to fetch profile" });
   }
 });
 

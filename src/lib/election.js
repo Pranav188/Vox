@@ -10,6 +10,33 @@ const FALLBACK_ELECTION_ABI = [
     type: "constructor",
   },
   {
+    anonymous: false,
+    inputs: [{ indexed: true, internalType: "address", name: "voter", type: "address" }],
+    name: "VoterRegistered",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: "address", name: "voter", type: "address" },
+      { indexed: false, internalType: "uint256", name: "candidateIndex", type: "uint256" },
+    ],
+    name: "VoteCast",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [],
+    name: "VotingOpened",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [],
+    name: "VotingClosed",
+    type: "event",
+  },
+  {
     inputs: [],
     name: "admin",
     outputs: [{ internalType: "address", name: "", type: "address" }],
@@ -103,7 +130,7 @@ export const ELECTION_NETWORKS = {
     contractAddress: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
   },
   sepolia: {
-    rpcUrl: "https://sepolia.infura.io/v3/b0dbf72058bd4f4f8400fc1265e9ddd5",
+    rpcUrl: import.meta.env.VITE_SEPOLIA_RPC_URL || "https://rpc.sepolia.org",
     chainId: 11155111,
     chainName: "Sepolia",
     contractAddress: "0xa78C18A821150b2077f06BB8F19C0dB44fd5AD35",

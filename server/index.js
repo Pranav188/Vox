@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -8,52 +9,75 @@ import verifyRouter from "./routes/verify.js";
 import statusRouter from "./routes/status.js";
 import adminRouter from "./routes/admin.js";
 import { getLatestElection } from "./db.js";
-import { setContractAddress } from "./lib/blockchain.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+const VALID_NETWORKS = ["sepolia", "localhost"];
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const isProduction = process.env.NODE_ENV === "production";
 
-// CORS: in dev allow Vite dev server, in production same-origin so not needed
-if (!isProduction) {
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: isProduction ? undefined : false,
+}));
+
+// CORS
+if (isProduction) {
+  const allowedOrigin = process.env.ALLOWED_ORIGIN || "https://vox2026.duckdns.org";
+  app.use(cors({ origin: allowedOrigin }));
+} else {
   app.use(cors({ origin: "http://localhost:5173" }));
 }
 
-app.use(express.json());
+// Body size limit
+app.use(express.json({ limit: "16kb" }));
 
-// Rate limit the verify endpoint (costs gas on success)
+// Rate limiters
 const verifyLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
   message: { message: "Too many verification attempts. Please try again in a minute." },
 });
 
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { message: "Too many admin requests. Please try again in a minute." },
+});
+
+const publicLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { message: "Too many requests. Please try again in a minute." },
+});
+
 app.use("/api/verify", verifyLimiter, verifyRouter);
-app.use("/api/status", statusRouter);
-app.use("/api/admin", adminRouter);
+app.use("/api/status", publicLimiter, statusRouter);
+app.use("/api/admin", adminLimiter, adminRouter);
 
 // Public endpoint: get latest election contract address
-app.get("/api/elections/latest", (req, res) => {
+app.get("/api/elections/latest", publicLimiter, (req, res) => {
   try {
     const network = req.query.network || "sepolia";
+    if (!VALID_NETWORKS.includes(network)) {
+      return res.status(400).json({ message: "Invalid network. Must be one of: " + VALID_NETWORKS.join(", ") });
+    }
     const election = getLatestElection(network);
     if (!election) {
       return res.status(404).json({ message: "No elections found" });
     }
     const candidates = JSON.parse(election.candidates);
-    // Point the blockchain module to this contract
-    setContractAddress(election.contract_address);
     res.json({
       contractAddress: election.contract_address,
       electionName: election.election_name,
       candidates,
       createdAt: election.created_at,
     });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch {
+    res.status(500).json({ message: "Failed to fetch election data" });
   }
 });
 

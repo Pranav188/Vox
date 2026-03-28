@@ -16,9 +16,15 @@ contract Election {
     mapping(address => bool) public isRegisteredVoter;
     mapping(address => bool) public hasVoted;
 
+    event VoterRegistered(address indexed voter);
+    event VoteCast(address indexed voter, uint256 candidateIndex);
+    event VotingOpened();
+    event VotingClosed();
+
     constructor(string memory _electionName, string[] memory candidateNames) {
         require(bytes(_electionName).length > 0, "Election name is required");
         require(candidateNames.length > 0, "At least one candidate is required");
+        require(candidateNames.length <= 50, "Too many candidates");
 
         admin = msg.sender;
         electionName = _electionName;
@@ -39,6 +45,7 @@ contract Election {
         require(!isRegisteredVoter[voter], "Voter already registered");
 
         isRegisteredVoter[voter] = true;
+        emit VoterRegistered(voter);
     }
 
     function openVoting() public {
@@ -46,6 +53,7 @@ contract Election {
         require(!votingOpen, "Voting is already open");
 
         votingOpen = true;
+        emit VotingOpened();
     }
 
     function closeVoting() public {
@@ -53,6 +61,7 @@ contract Election {
         require(votingOpen, "Voting is already closed");
 
         votingOpen = false;
+        emit VotingClosed();
     }
 
     function vote(uint256 candidateIndex) public {
@@ -63,6 +72,7 @@ contract Election {
 
         candidates[candidateIndex].voteCount += 1;
         hasVoted[msg.sender] = true;
+        emit VoteCast(msg.sender, candidateIndex);
     }
 
     function getCandidateCount() public view returns (uint256) {
