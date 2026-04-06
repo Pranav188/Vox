@@ -1283,15 +1283,7 @@ function App() {
             </div>
             <div className="profile-row">
               <span className="profile-label">Aadhaar ID</span>
-              <strong>{voterProfile.aadhaarId.replace(/(\d{4})(\d{4})(\d{4})/, "$1 $2 $3")}</strong>
-            </div>
-            <div className="profile-row">
-              <span className="profile-label">Date of Birth</span>
-              <strong>{voterProfile.dateOfBirth}</strong>
-            </div>
-            <div className="profile-row">
-              <span className="profile-label">Gender</span>
-              <strong>{voterProfile.gender}</strong>
+              <strong>{voterProfile.aadhaarId}</strong>
             </div>
             <div className="profile-row">
               <span className="profile-label">District</span>

@@ -5,6 +5,10 @@ import { registerVoterOnChain, isVoterRegistered } from "../lib/blockchain.js";
 
 const router = Router();
 
+function maskAadhaar(aadhaarId) {
+  return "XXXX XXXX " + aadhaarId.slice(-4);
+}
+
 // In-flight lock to prevent TOCTOU race between check and on-chain registration
 const inFlightAadhaar = new Set();
 const inFlightWallets = new Set();
@@ -69,14 +73,12 @@ router.post("/", async (req, res) => {
       message: `Welcome, ${citizen.full_name}! You are now a registered voter.`,
       citizen: {
         fullName: citizen.full_name,
-        aadhaarId: citizen.aadhaar_id,
-        dateOfBirth: citizen.date_of_birth,
-        gender: citizen.gender,
+        aadhaarId: maskAadhaar(citizen.aadhaar_id),
         district: citizen.district,
       },
     });
   } catch (err) {
-    console.error("Verification error:", err);
+    console.error("Verification error:", err.message || "unknown");
     return res.status(500).json({ message: "Verification failed. Please try again." });
   } finally {
     if (lockedAadhaar) inFlightAadhaar.delete(aadhaarId);
@@ -87,6 +89,9 @@ router.post("/", async (req, res) => {
 // GET /api/verify/profile/:walletAddress - get citizen profile by linked wallet
 router.get("/profile/:walletAddress", (req, res) => {
   try {
+    if (!ethers.isAddress(req.params.walletAddress)) {
+      return res.status(400).json({ message: "Invalid wallet address" });
+    }
     const wallet = req.params.walletAddress.toLowerCase();
     const citizen = findByWallet(wallet);
     if (!citizen) {
@@ -94,9 +99,7 @@ router.get("/profile/:walletAddress", (req, res) => {
     }
     return res.json({
       fullName: citizen.full_name,
-      aadhaarId: citizen.aadhaar_id,
-      dateOfBirth: citizen.date_of_birth,
-      gender: citizen.gender,
+      aadhaarId: maskAadhaar(citizen.aadhaar_id),
       district: citizen.district,
     });
   } catch {

@@ -19,6 +19,21 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const isProduction = process.env.NODE_ENV === "production";
 
+// Trust first proxy (nginx/ALB) so rate limiting uses real client IP
+if (isProduction) {
+  app.set("trust proxy", 1);
+}
+
+// Redirect HTTP to HTTPS in production
+if (isProduction) {
+  app.use((req, res, next) => {
+    if (req.headers["x-forwarded-proto"] !== "https") {
+      return res.redirect(301, `https://${req.headers.host}${req.url}`);
+    }
+    next();
+  });
+}
+
 // Security headers
 app.use(helmet({
   contentSecurityPolicy: isProduction ? undefined : false,

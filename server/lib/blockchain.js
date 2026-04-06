@@ -40,7 +40,9 @@ function getContract(contractAddress) {
 
 // Get the default contract address from env
 function getDefaultContractAddress() {
-  return process.env.VITE_ELECTION_CONTRACT_ADDRESS || "0xa78C18A821150b2077f06BB8F19C0dB44fd5AD35";
+  const addr = process.env.VITE_ELECTION_CONTRACT_ADDRESS;
+  if (!addr) throw new Error("VITE_ELECTION_CONTRACT_ADDRESS is not set");
+  return addr;
 }
 
 export async function deployElection(electionName, candidates) {

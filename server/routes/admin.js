@@ -20,6 +20,18 @@ const router = Router();
 const MAX_CANDIDATES = 50;
 const MAX_NAME_LENGTH = 200;
 const MAX_LABEL_LENGTH = 100;
+const VALID_GENDERS = ["Male", "Female", "Other"];
+
+// Used signature nonces to prevent replay attacks (auto-expire after 3 minutes)
+const usedNonces = new Map();
+const NONCE_EXPIRY_MS = 3 * 60 * 1000;
+function pruneExpiredNonces() {
+  const now = Date.now();
+  for (const [key, ts] of usedNonces) {
+    if (now - ts > NONCE_EXPIRY_MS) usedNonces.delete(key);
+  }
+}
+setInterval(pruneExpiredNonces, 60 * 1000);
 
 // In-flight lock to prevent TOCTOU race on admin register-voter
 const inFlightAadhaar = new Set();
@@ -53,6 +65,13 @@ function requireAdmin(req, res, next) {
       return res.status(401).json({ message: "Signature expired. Please sign in again." });
     }
 
+    // Prevent signature replay: each signature+timestamp pair can only be used once
+    const nonceKey = signature.slice(0, 32) + ":" + match[1];
+    if (usedNonces.has(nonceKey)) {
+      return res.status(401).json({ message: "Signature already used. Please sign again." });
+    }
+    usedNonces.set(nonceKey, now);
+
     // Recover signer address
     const signer = ethers.verifyMessage(message, signature).toLowerCase();
 
@@ -75,6 +94,9 @@ function requireAdmin(req, res, next) {
 // GET /api/admin/check/:walletAddress - check if a wallet is admin
 router.get("/check/:walletAddress", (req, res) => {
   try {
+    if (!ethers.isAddress(req.params.walletAddress)) {
+      return res.status(400).json({ message: "Invalid wallet address" });
+    }
     const wallet = req.params.walletAddress.toLowerCase();
     const deployerAddress = getDeployerAddress();
     const isDeployer = wallet === deployerAddress;
@@ -125,6 +147,10 @@ router.post("/citizens", requireAdmin, (req, res) => {
       return res.status(400).json({ message: `District must be under ${MAX_NAME_LENGTH} characters` });
     }
 
+    if (!VALID_GENDERS.includes(gender)) {
+      return res.status(400).json({ message: `Gender must be one of: ${VALID_GENDERS.join(", ")}` });
+    }
+
     insertCitizen({
       aadhaar_id: aadhaarId,
       full_name: fullName,
@@ -145,6 +171,9 @@ router.post("/citizens", requireAdmin, (req, res) => {
 // DELETE /api/admin/citizens/:aadhaarId - remove an unverified citizen
 router.delete("/citizens/:aadhaarId", requireAdmin, (req, res) => {
   try {
+    if (!/^\d{12}$/.test(req.params.aadhaarId)) {
+      return res.status(400).json({ message: "Aadhaar ID must be exactly 12 digits" });
+    }
     const result = deleteCitizen(req.params.aadhaarId);
     if (result.changes === 0) {
       return res.status(404).json({ message: "Citizen not found or already verified (cannot delete verified citizens)" });
@@ -285,6 +314,9 @@ router.delete("/admins/:walletAddress", requireAdmin, (req, res) => {
       return res.status(403).json({ message: "Only the deployer wallet can remove admins" });
     }
 
+    if (!ethers.isAddress(req.params.walletAddress)) {
+      return res.status(400).json({ message: "Invalid wallet address" });
+    }
     const result = removeAdmin(req.params.walletAddress);
     if (result.changes === 0) {
       return res.status(404).json({ message: "Admin not found" });
@@ -332,6 +364,11 @@ router.post("/elections", requireAdmin, async (req, res) => {
 
     if (cleanCandidates.some((c) => c.length > MAX_NAME_LENGTH)) {
       return res.status(400).json({ message: `Candidate names must be under ${MAX_NAME_LENGTH} characters` });
+    }
+
+    const uniqueNames = new Set(cleanCandidates.map((c) => c.toLowerCase()));
+    if (uniqueNames.size !== cleanCandidates.length) {
+      return res.status(400).json({ message: "Duplicate candidate names are not allowed" });
     }
 
     const contractAddress = await deployElection(electionName.trim(), cleanCandidates);

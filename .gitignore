@@ -16,8 +16,7 @@ cache
 .env
 server.db*
 *.pem
-server.db
-*.pem
+server/citizens.json
 
 # Editor directories and files
 .vscode/*
