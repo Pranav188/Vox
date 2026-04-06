@@ -1,46 +1,127 @@
 # Vox
 
-Vox is a learning-first blockchain election MVP built with Solidity, Hardhat, React, ethers, and MetaMask.
+Vox is a blockchain voting project for learning and experimentation.
 
-## Current state
+It combines:
+- a Solidity smart contract (`Election.sol`)
+- a React frontend (voter + admin views)
+- an Express backend with SQLite (mock DigiLocker identity records + admin APIs)
 
-- election contract, tests, deployment script, and frontend are wired together
-- frontend has separate `#/vote` and `#/admin` routes
-- frontend reads ABI from the compiled Hardhat artifact
-- network selection is config-driven for localhost vs Sepolia
+## What Vox does
 
-## Local development
+- Deploys an `Election` contract with candidate names.
+- Lets admins register voters on-chain.
+- Lets registered voters cast one vote with MetaMask.
+- Prevents unregistered voting and double voting at contract level.
+- Provides admin tools to manage citizens, appoint admins, and create new elections.
 
-1. Start the local node:
-   `npx hardhat node`
-2. Deploy the contract:
-   `npx hardhat run scripts/deploy-election.js --network localhost`
-3. Run the frontend:
-   `npm run dev`
+## Tech stack
 
-## Frontend network config
+- Solidity + Hardhat
+- React + Vite + ethers
+- Express + better-sqlite3
 
-Copy `.env.example` to `.env` and adjust values if needed.
+## Prerequisites
 
-Available Vite env vars:
+- Node.js + npm
+- MetaMask browser extension
+- For Sepolia: RPC URL, funded wallet, and private key
 
-- `VITE_ELECTION_NETWORK`
-- `VITE_ELECTION_RPC_URL`
-- `VITE_ELECTION_CHAIN_ID`
-- `VITE_ELECTION_CHAIN_NAME`
-- `VITE_ELECTION_CONTRACT_ADDRESS`
+## Setup
 
-Defaults:
+1. Install dependencies:
 
-- `localhost` is the default active network
-- Sepolia is prepared in the frontend config, but you must provide a deployed contract address before using it
+```bash
+npm install
+```
 
-## Checks
+2. Create your env file:
 
-- Contract tests: `npx hardhat test`
-- Lint: `npm run lint`
-- Build: `npm run build`
+```bash
+cp .env.example .env
+```
 
-## Manual testing
+3. Seed demo citizens into SQLite (optional but recommended):
 
-- Wallet/role/transaction checklist: `docs/frontend-manual-test-checklist.md`
+```bash
+npm run seed
+```
+
+## Run locally (Hardhat localhost)
+
+Use separate terminals:
+
+1. Start local chain:
+
+```bash
+npx hardhat node
+```
+
+2. Deploy contract:
+
+```bash
+npm run deploy:localhost
+```
+
+3. Make sure `.env` uses localhost frontend network:
+
+```env
+VITE_ELECTION_NETWORK=localhost
+```
+
+4. Start backend API:
+
+```bash
+npm run server
+```
+
+5. Start frontend:
+
+```bash
+npm run dev
+```
+
+Frontend runs at `http://localhost:5173`.
+
+## Run with Sepolia (optional)
+
+1. Set `SEPOLIA_RPC_URL` and `SEPOLIA_PRIVATE_KEY` in `.env`.
+2. Deploy:
+
+```bash
+npm run deploy:sepolia
+```
+
+3. Update the Sepolia contract address in `src/lib/election.js` as printed by the deploy script.
+4. Set:
+
+```env
+VITE_ELECTION_NETWORK=sepolia
+```
+
+5. Run backend and frontend (`npm run server`, `npm run dev`).
+
+## Useful scripts
+
+- `npm run dev` - start Vite frontend
+- `npm run server` - start Express backend
+- `npm run seed` - seed demo citizens into `server.db`
+- `npm run deploy:localhost` - deploy election contract to local Hardhat node
+- `npm run deploy:sepolia` - deploy election contract to Sepolia
+- `npm run lint` - run ESLint
+- `npm run build` - build frontend
+- `npm run start` - build frontend and start backend (production-style)
+
+## Tests and checks
+
+```bash
+npx hardhat test
+npm run lint
+npm run build
+```
+
+Manual QA checklist: `docs/frontend-manual-test-checklist.md`
+
+## License
+
+MIT - see `LICENSE`.
