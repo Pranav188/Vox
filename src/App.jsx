@@ -236,7 +236,7 @@ function App() {
     }
 
     return "You can view live election data. Register this wallet as a voter to cast votes.";
-  }, [electionState.votingOpen, roleState.key]);
+  }, [electionConfig.chainName, electionState.votingOpen, roleState.key]);
 
   const networkLabel = useMemo(() => {
     if (!walletState.chainId) {
@@ -248,7 +248,7 @@ function App() {
     }
 
     return `Chain ${walletState.chainId} (expected ${electionConfig.chainId})`;
-  }, [isCorrectNetwork, walletState.chainId]);
+  }, [electionConfig.chainId, electionConfig.chainName, isCorrectNetwork, walletState.chainId]);
 
   const updateActionStatus = useCallback((actionKey, feedback) => {
     setActionStatus((current) => ({
@@ -441,7 +441,7 @@ function App() {
       window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
       window.ethereum.removeListener("chainChanged", handleChainChanged);
     };
-  }, []);
+  }, [electionConfig.chainId, electionConfig.chainName]);
 
   useEffect(() => {
     function handleEscape(event) {
@@ -989,7 +989,7 @@ function App() {
     }
 
     return "";
-  }, [isAdmin, isCorrectNetwork, isSubmittingAdminAction, walletState.account]);
+  }, [electionConfig.chainName, isAdmin, isCorrectNetwork, isSubmittingAdminAction, walletState.account]);
 
   const openVotingDisabledReason = useMemo(() => {
     if (registerDisabledReason) {
@@ -1283,15 +1283,7 @@ function App() {
             </div>
             <div className="profile-row">
               <span className="profile-label">Aadhaar ID</span>
-              <strong>{voterProfile.aadhaarId.replace(/(\d{4})(\d{4})(\d{4})/, "$1 $2 $3")}</strong>
-            </div>
-            <div className="profile-row">
-              <span className="profile-label">Date of Birth</span>
-              <strong>{voterProfile.dateOfBirth}</strong>
-            </div>
-            <div className="profile-row">
-              <span className="profile-label">Gender</span>
-              <strong>{voterProfile.gender}</strong>
+              <strong>{voterProfile.aadhaarId}</strong>
             </div>
             <div className="profile-row">
               <span className="profile-label">District</span>

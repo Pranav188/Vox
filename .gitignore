@@ -14,8 +14,9 @@ dist-ssr
 artifacts
 cache
 .env
-server.db
+server.db*
 *.pem
+server/citizens.json
 
 # Editor directories and files
 .vscode/*

@@ -9,11 +9,11 @@ router.get("/", async (_req, res) => {
     res.json({
       ok: true,
       network: "sepolia",
-      contract: process.env.VITE_ELECTION_CONTRACT_ADDRESS || "0xa78C18A821150b2077f06BB8F19C0dB44fd5AD35",
+      contract: process.env.VITE_ELECTION_CONTRACT_ADDRESS || "not configured",
       adminBalance,
     });
-  } catch (err) {
-    res.status(500).json({ ok: false, message: err.message });
+  } catch {
+    res.status(500).json({ ok: false, message: "Failed to fetch status" });
   }
 });
 

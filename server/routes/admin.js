@@ -12,11 +12,30 @@ import {
   removeAdmin,
   getAllAdmins,
   insertElection,
-  getLatestElection,
 } from "../db.js";
-import { deployElection, hasVoterVoted, registerVoterOnChain, isVoterRegistered, setContractAddress } from "../lib/blockchain.js";
+import { deployElection, hasVoterVoted, registerVoterOnChain, isVoterRegistered } from "../lib/blockchain.js";
 
 const router = Router();
+
+const MAX_CANDIDATES = 50;
+const MAX_NAME_LENGTH = 200;
+const MAX_LABEL_LENGTH = 100;
+const VALID_GENDERS = ["Male", "Female", "Other"];
+
+// Used signature nonces to prevent replay attacks (auto-expire after 3 minutes)
+const usedNonces = new Map();
+const NONCE_EXPIRY_MS = 3 * 60 * 1000;
+function pruneExpiredNonces() {
+  const now = Date.now();
+  for (const [key, ts] of usedNonces) {
+    if (now - ts > NONCE_EXPIRY_MS) usedNonces.delete(key);
+  }
+}
+setInterval(pruneExpiredNonces, 60 * 1000);
+
+// In-flight lock to prevent TOCTOU race on admin register-voter
+const inFlightAadhaar = new Set();
+const inFlightWallets = new Set();
 
 // The deployer wallet is always a super-admin (derived from SEPOLIA_PRIVATE_KEY)
 function getDeployerAddress() {
@@ -26,8 +45,6 @@ function getDeployerAddress() {
 }
 
 // Auth middleware: verify wallet signature
-// Frontend signs the string "vox-admin-{timestamp}" with MetaMask
-// Sends: x-admin-signature header + x-admin-message header
 function requireAdmin(req, res, next) {
   try {
     const signature = req.headers["x-admin-signature"];
@@ -37,16 +54,23 @@ function requireAdmin(req, res, next) {
       return res.status(401).json({ message: "Missing admin signature. Sign in with your admin wallet." });
     }
 
-    // Verify message is recent (within 5 minutes)
+    // Verify message is recent (within 2 minutes)
     const match = message.match(/^vox-admin-(\d+)$/);
     if (!match) {
       return res.status(401).json({ message: "Invalid signature message format" });
     }
     const timestamp = parseInt(match[1], 10);
     const now = Date.now();
-    if (Math.abs(now - timestamp) > 5 * 60 * 1000) {
+    if (Math.abs(now - timestamp) > 2 * 60 * 1000) {
       return res.status(401).json({ message: "Signature expired. Please sign in again." });
     }
+
+    // Prevent signature replay: each signature+timestamp pair can only be used once
+    const nonceKey = signature.slice(0, 32) + ":" + match[1];
+    if (usedNonces.has(nonceKey)) {
+      return res.status(401).json({ message: "Signature already used. Please sign again." });
+    }
+    usedNonces.set(nonceKey, now);
 
     // Recover signer address
     const signer = ethers.verifyMessage(message, signature).toLowerCase();
@@ -60,8 +84,8 @@ function requireAdmin(req, res, next) {
     req.adminAddress = signer;
     req.isDeployer = signer === deployerAddress;
     next();
-  } catch (err) {
-    return res.status(401).json({ message: "Signature verification failed: " + err.message });
+  } catch {
+    return res.status(401).json({ message: "Signature verification failed" });
   }
 }
 
@@ -70,6 +94,9 @@ function requireAdmin(req, res, next) {
 // GET /api/admin/check/:walletAddress - check if a wallet is admin
 router.get("/check/:walletAddress", (req, res) => {
   try {
+    if (!ethers.isAddress(req.params.walletAddress)) {
+      return res.status(400).json({ message: "Invalid wallet address" });
+    }
     const wallet = req.params.walletAddress.toLowerCase();
     const deployerAddress = getDeployerAddress();
     const isDeployer = wallet === deployerAddress;
@@ -78,8 +105,8 @@ router.get("/check/:walletAddress", (req, res) => {
       isAdmin: isDeployer || isAppointedAdmin,
       isDeployer,
     });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch {
+    res.status(500).json({ message: "Failed to check admin status" });
   }
 });
 
@@ -90,8 +117,8 @@ router.get("/citizens", requireAdmin, (_req, res) => {
   try {
     const citizens = getAllCitizens();
     res.json({ citizens });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch {
+    res.status(500).json({ message: "Failed to fetch citizens" });
   }
 });
 
@@ -112,6 +139,18 @@ router.post("/citizens", requireAdmin, (req, res) => {
       return res.status(400).json({ message: "Date of birth must be in YYYY-MM-DD format" });
     }
 
+    if (fullName.length > MAX_NAME_LENGTH) {
+      return res.status(400).json({ message: `Full name must be under ${MAX_NAME_LENGTH} characters` });
+    }
+
+    if (district.length > MAX_NAME_LENGTH) {
+      return res.status(400).json({ message: `District must be under ${MAX_NAME_LENGTH} characters` });
+    }
+
+    if (!VALID_GENDERS.includes(gender)) {
+      return res.status(400).json({ message: `Gender must be one of: ${VALID_GENDERS.join(", ")}` });
+    }
+
     insertCitizen({
       aadhaar_id: aadhaarId,
       full_name: fullName,
@@ -125,28 +164,33 @@ router.post("/citizens", requireAdmin, (req, res) => {
     if (err.message.includes("UNIQUE constraint")) {
       return res.status(409).json({ message: "A citizen with this Aadhaar ID already exists" });
     }
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: "Failed to add citizen" });
   }
 });
 
 // DELETE /api/admin/citizens/:aadhaarId - remove an unverified citizen
 router.delete("/citizens/:aadhaarId", requireAdmin, (req, res) => {
   try {
+    if (!/^\d{12}$/.test(req.params.aadhaarId)) {
+      return res.status(400).json({ message: "Aadhaar ID must be exactly 12 digits" });
+    }
     const result = deleteCitizen(req.params.aadhaarId);
     if (result.changes === 0) {
       return res.status(404).json({ message: "Citizen not found or already verified (cannot delete verified citizens)" });
     }
     res.json({ success: true, message: "Citizen removed from DigiLocker" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch {
+    res.status(500).json({ message: "Failed to delete citizen" });
   }
 });
 
 // POST /api/admin/register-voter - register a voter by Aadhaar (admin enters Aadhaar + wallet)
 router.post("/register-voter", requireAdmin, async (req, res) => {
-  try {
-    const { aadhaarId, walletAddress } = req.body;
+  const { aadhaarId, walletAddress } = req.body;
+  let lockedAadhaar = false;
+  let lockedWallet = false;
 
+  try {
     if (!aadhaarId || !walletAddress) {
       return res.status(400).json({ message: "Aadhaar ID and wallet address are required" });
     }
@@ -158,6 +202,20 @@ router.post("/register-voter", requireAdmin, async (req, res) => {
     if (!ethers.isAddress(walletAddress)) {
       return res.status(400).json({ message: "Invalid Ethereum wallet address" });
     }
+
+    const walletLower = walletAddress.toLowerCase();
+
+    // Acquire in-flight locks
+    if (inFlightAadhaar.has(aadhaarId)) {
+      return res.status(409).json({ message: "Registration already in progress for this Aadhaar" });
+    }
+    if (inFlightWallets.has(walletLower)) {
+      return res.status(409).json({ message: "Registration already in progress for this wallet" });
+    }
+    inFlightAadhaar.add(aadhaarId);
+    lockedAadhaar = true;
+    inFlightWallets.add(walletLower);
+    lockedWallet = true;
 
     const citizen = findByAadhaar(aadhaarId);
     if (!citizen) {
@@ -185,8 +243,11 @@ router.post("/register-voter", requireAdmin, async (req, res) => {
       txHash,
       message: `${citizen.full_name} registered as voter (${walletAddress.slice(0, 8)}...)`,
     });
-  } catch (err) {
-    res.status(500).json({ message: "Registration failed: " + err.message });
+  } catch {
+    res.status(500).json({ message: "Registration failed. Please try again." });
+  } finally {
+    if (lockedAadhaar) inFlightAadhaar.delete(aadhaarId);
+    if (lockedWallet) inFlightWallets.delete(walletAddress?.toLowerCase());
   }
 });
 
@@ -198,8 +259,8 @@ router.get("/admins", requireAdmin, (_req, res) => {
     const admins = getAllAdmins();
     const deployerAddress = getDeployerAddress();
     res.json({ admins, deployerAddress });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch {
+    res.status(500).json({ message: "Failed to fetch admins" });
   }
 });
 
@@ -220,25 +281,29 @@ router.post("/admins", requireAdmin, async (req, res) => {
       return res.status(400).json({ message: "Invalid Ethereum wallet address" });
     }
 
+    if (label && label.length > MAX_LABEL_LENGTH) {
+      return res.status(400).json({ message: `Label must be under ${MAX_LABEL_LENGTH} characters` });
+    }
+
     const deployerAddress = getDeployerAddress();
     if (walletAddress.toLowerCase() === deployerAddress) {
       return res.status(400).json({ message: "The deployer is always an admin and does not need to be appointed" });
     }
 
-    // Check if the wallet has already voted
+    // Fail closed: if we can't verify voter status, reject the appointment
     try {
       const voted = await hasVoterVoted(walletAddress);
       if (voted) {
         return res.status(400).json({ message: "This wallet has already voted and cannot be appointed as admin" });
       }
     } catch {
-      // If the check fails (e.g. contract not reachable), allow the appointment
+      return res.status(503).json({ message: "Cannot verify voter status right now. Try again later." });
     }
 
     addAdmin(walletAddress, label || "", req.adminAddress);
     res.json({ success: true, message: `${label || walletAddress} appointed as admin` });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch {
+    res.status(500).json({ message: "Failed to appoint admin" });
   }
 });
 
@@ -249,13 +314,16 @@ router.delete("/admins/:walletAddress", requireAdmin, (req, res) => {
       return res.status(403).json({ message: "Only the deployer wallet can remove admins" });
     }
 
+    if (!ethers.isAddress(req.params.walletAddress)) {
+      return res.status(400).json({ message: "Invalid wallet address" });
+    }
     const result = removeAdmin(req.params.walletAddress);
     if (result.changes === 0) {
       return res.status(404).json({ message: "Admin not found" });
     }
     res.json({ success: true, message: "Admin removed" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch {
+    res.status(500).json({ message: "Failed to remove admin" });
   }
 });
 
@@ -274,13 +342,33 @@ router.post("/elections", requireAdmin, async (req, res) => {
       return res.status(400).json({ message: "Election name is required" });
     }
 
+    if (electionName.trim().length > MAX_NAME_LENGTH) {
+      return res.status(400).json({ message: `Election name must be under ${MAX_NAME_LENGTH} characters` });
+    }
+
     if (!Array.isArray(candidates) || candidates.length === 0) {
       return res.status(400).json({ message: "At least one candidate is required" });
     }
 
-    const cleanCandidates = candidates.map((c) => (typeof c === "string" ? c.trim() : "")).filter(Boolean);
+    if (candidates.length > MAX_CANDIDATES) {
+      return res.status(400).json({ message: `Maximum ${MAX_CANDIDATES} candidates allowed` });
+    }
+
+    const cleanCandidates = candidates
+      .map((c) => (typeof c === "string" ? c.trim() : ""))
+      .filter(Boolean);
+
     if (cleanCandidates.length === 0) {
       return res.status(400).json({ message: "Candidate names cannot be empty" });
+    }
+
+    if (cleanCandidates.some((c) => c.length > MAX_NAME_LENGTH)) {
+      return res.status(400).json({ message: `Candidate names must be under ${MAX_NAME_LENGTH} characters` });
+    }
+
+    const uniqueNames = new Set(cleanCandidates.map((c) => c.toLowerCase()));
+    if (uniqueNames.size !== cleanCandidates.length) {
+      return res.status(400).json({ message: "Duplicate candidate names are not allowed" });
     }
 
     const contractAddress = await deployElection(electionName.trim(), cleanCandidates);
@@ -289,7 +377,7 @@ router.post("/elections", requireAdmin, async (req, res) => {
       contract_address: contractAddress,
       election_name: electionName.trim(),
       candidates: cleanCandidates,
-      network: "sepolia",
+      network: process.env.VITE_ELECTION_NETWORK || "sepolia",
       created_by: req.adminAddress,
     });
 
@@ -300,8 +388,8 @@ router.post("/elections", requireAdmin, async (req, res) => {
       candidates: cleanCandidates,
       message: `Election "${electionName.trim()}" deployed to ${contractAddress}`,
     });
-  } catch (err) {
-    res.status(500).json({ message: "Failed to deploy election: " + err.message });
+  } catch {
+    res.status(500).json({ message: "Failed to deploy election. Check admin wallet balance and try again." });
   }
 });
 

@@ -10,7 +10,6 @@ const ARTIFACT_PATH = join(__dirname, "..", "..", "artifacts", "contracts", "Ele
 
 let provider;
 let adminWallet;
-let contract;
 let artifact;
 
 function getArtifact() {
@@ -20,63 +19,60 @@ function getArtifact() {
   return artifact;
 }
 
-function init() {
-  if (contract) return;
-
-  const rpcUrl = process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com";
-  const privateKey = process.env.SEPOLIA_PRIVATE_KEY;
-  const contractAddress = process.env.VITE_ELECTION_CONTRACT_ADDRESS || "0xa78C18A821150b2077f06BB8F19C0dB44fd5AD35";
-
-  if (!privateKey) {
-    throw new Error("SEPOLIA_PRIVATE_KEY is not set in .env");
+function ensureProvider() {
+  if (!provider) {
+    const rpcUrl = process.env.SEPOLIA_RPC_URL || "https://rpc.sepolia.org";
+    const privateKey = process.env.SEPOLIA_PRIVATE_KEY;
+    if (!privateKey) {
+      throw new Error("SEPOLIA_PRIVATE_KEY is not set in .env");
+    }
+    provider = new ethers.JsonRpcProvider(rpcUrl);
+    adminWallet = new ethers.Wallet(privateKey, provider);
   }
-
-  const { abi } = getArtifact();
-
-  provider = new ethers.JsonRpcProvider(rpcUrl);
-  adminWallet = new ethers.Wallet(privateKey, provider);
-  contract = new ethers.Contract(contractAddress, abi, adminWallet);
 }
 
-export function setContractAddress(address) {
+// Get a contract instance for a specific address (no shared mutable state)
+function getContract(contractAddress) {
+  ensureProvider();
   const { abi } = getArtifact();
-  if (!provider || !adminWallet) {
-    init();
-  }
-  contract = new ethers.Contract(address, abi, adminWallet);
+  return new ethers.Contract(contractAddress, abi, adminWallet);
+}
+
+// Get the default contract address from env
+function getDefaultContractAddress() {
+  const addr = process.env.VITE_ELECTION_CONTRACT_ADDRESS;
+  if (!addr) throw new Error("VITE_ELECTION_CONTRACT_ADDRESS is not set");
+  return addr;
 }
 
 export async function deployElection(electionName, candidates) {
-  init();
+  ensureProvider();
   const { abi, bytecode } = getArtifact();
   const factory = new ethers.ContractFactory(abi, bytecode, adminWallet);
   const deployed = await factory.deploy(electionName, candidates);
   await deployed.waitForDeployment();
-  const address = await deployed.getAddress();
-  // Point the in-memory contract to the newly deployed one
-  contract = new ethers.Contract(address, abi, adminWallet);
-  return address;
+  return await deployed.getAddress();
 }
 
-export async function registerVoterOnChain(walletAddress) {
-  init();
+export async function registerVoterOnChain(walletAddress, contractAddress) {
+  const contract = getContract(contractAddress || getDefaultContractAddress());
   const tx = await contract.registerVoter(walletAddress);
   const receipt = await tx.wait();
   return receipt.hash;
 }
 
-export async function isVoterRegistered(walletAddress) {
-  init();
+export async function isVoterRegistered(walletAddress, contractAddress) {
+  const contract = getContract(contractAddress || getDefaultContractAddress());
   return contract.isRegisteredVoter(walletAddress);
 }
 
-export async function hasVoterVoted(walletAddress) {
-  init();
+export async function hasVoterVoted(walletAddress, contractAddress) {
+  const contract = getContract(contractAddress || getDefaultContractAddress());
   return contract.hasVoted(walletAddress);
 }
 
 export async function getAdminBalance() {
-  init();
+  ensureProvider();
   const balance = await provider.getBalance(adminWallet.address);
   return ethers.formatEther(balance);
 }

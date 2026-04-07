@@ -21,23 +21,25 @@ export async function getVoterProfile(walletAddress) {
 
 // --- Admin API helpers ---
 
-let _cachedAdminHeaders = null;
-let _cachedHeadersExpiry = 0;
+// Keyed by lowercase wallet address to prevent cross-wallet privilege bleed
+const _headerCache = new Map(); // address -> { headers, expiry }
 
 export async function getAdminHeaders(signer) {
+  const address = (await signer.getAddress()).toLowerCase();
   const now = Date.now();
-  if (_cachedAdminHeaders && now < _cachedHeadersExpiry) {
-    return _cachedAdminHeaders;
+  const cached = _headerCache.get(address);
+  if (cached && now < cached.expiry) {
+    return cached.headers;
   }
   const message = `vox-admin-${now}`;
   const signature = await signer.signMessage(message);
-  _cachedAdminHeaders = {
+  const headers = {
     "Content-Type": "application/json",
     "x-admin-signature": signature,
     "x-admin-message": message,
   };
-  _cachedHeadersExpiry = now + 4 * 60 * 1000; // reuse for 4 minutes
-  return _cachedAdminHeaders;
+  _headerCache.set(address, { headers, expiry: now + 90 * 1000 }); // 90 seconds
+  return headers;
 }
 
 export async function adminGetCitizens(signer) {
