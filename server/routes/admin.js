@@ -336,7 +336,9 @@ router.post("/elections", requireAdmin, async (req, res) => {
       return res.status(403).json({ message: "Only the deployer wallet can create elections" });
     }
 
-    const { electionName, candidates } = req.body;
+    const { electionName, candidates, network: clientNetwork } = req.body;
+    const VALID_NETWORKS = ["sepolia", "localhost"];
+    const network = VALID_NETWORKS.includes(clientNetwork) ? clientNetwork : (process.env.VITE_ELECTION_NETWORK || "sepolia");
 
     if (!electionName || !electionName.trim()) {
       return res.status(400).json({ message: "Election name is required" });
@@ -377,7 +379,7 @@ router.post("/elections", requireAdmin, async (req, res) => {
       contract_address: contractAddress,
       election_name: electionName.trim(),
       candidates: cleanCandidates,
-      network: process.env.VITE_ELECTION_NETWORK || "sepolia",
+      network,
       created_by: req.adminAddress,
     });
 

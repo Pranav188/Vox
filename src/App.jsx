@@ -850,10 +850,33 @@ function App() {
       const result = await adminCreateElection(signer, {
         electionName: electionForm.electionName.trim(),
         candidates: cleanCandidates,
+        network: activeNetwork,
       });
       setElectionFormStatus({ type: "success", message: result.message });
       setContractAddressOverride(result.contractAddress);
       setElectionForm({ electionName: "", candidates: ["", ""] });
+
+      // Eagerly refresh from the new contract so the UI updates immediately
+      try {
+        const newConfig = getConfigForNetwork(activeNetwork, result.contractAddress);
+        const contract = getReadOnlyElectionContract(newConfig);
+        const [name, admin, votingOpen, countBN] = await Promise.all([
+          contract.electionName(),
+          contract.admin(),
+          contract.votingOpen(),
+          contract.getCandidateCount(),
+        ]);
+        const count = Number(countBN);
+        const candidates = [];
+        for (let i = 0; i < count; i++) {
+          const c = await contract.candidates(i);
+          candidates.push({ index: i, name: c.name, voteCount: Number(c.voteCount) });
+        }
+        setElectionState({ electionName: name, admin, votingOpen, candidateCount: count, candidates });
+        setStatus(makeStatus("success", "idle", "sync", "New election loaded from on-chain contract."));
+      } catch {
+        // useEffect will retry when electionConfig changes
+      }
     } catch (err) {
       setElectionFormStatus({ type: "error", message: err.message });
     } finally {

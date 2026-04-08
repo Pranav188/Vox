@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { getLatestElection } from "../db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -38,10 +39,13 @@ function getContract(contractAddress) {
   return new ethers.Contract(contractAddress, abi, adminWallet);
 }
 
-// Get the default contract address from env
+// Get the active contract address: latest election from DB, then .env fallback
 function getDefaultContractAddress() {
+  const network = process.env.VITE_ELECTION_NETWORK || "sepolia";
+  const latest = getLatestElection(network);
+  if (latest) return latest.contract_address;
   const addr = process.env.VITE_ELECTION_CONTRACT_ADDRESS;
-  if (!addr) throw new Error("VITE_ELECTION_CONTRACT_ADDRESS is not set");
+  if (!addr) throw new Error("No election found and VITE_ELECTION_CONTRACT_ADDRESS is not set");
   return addr;
 }
 
