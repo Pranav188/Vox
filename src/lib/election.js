@@ -130,7 +130,7 @@ export const ELECTION_NETWORKS = {
     contractAddress: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
   },
   sepolia: {
-    rpcUrl: import.meta.env.VITE_SEPOLIA_RPC_URL || "https://rpc.sepolia.org",
+    rpcUrl: import.meta.env.VITE_ELECTION_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com",
     chainId: 11155111,
     chainName: "Sepolia",
     contractAddress: "0xa78C18A821150b2077f06BB8F19C0dB44fd5AD35",

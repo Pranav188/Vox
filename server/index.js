@@ -36,7 +36,20 @@ if (isProduction) {
 
 // Security headers
 app.use(helmet({
-  contentSecurityPolicy: isProduction ? undefined : false,
+  contentSecurityPolicy: isProduction
+    ? {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          "connect-src": [
+            "'self'",
+            "https://ethereum-sepolia-rpc.publicnode.com",
+            "https://*.infura.io",
+            "https://*.publicnode.com",
+            "http://127.0.0.1:8545",
+          ],
+        },
+      }
+    : false,
 }));
 
 // CORS

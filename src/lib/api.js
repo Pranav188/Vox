@@ -135,12 +135,12 @@ export async function getLatestElection(network) {
 
 // --- Election management ---
 
-export async function adminCreateElection(signer, { electionName, candidates }) {
+export async function adminCreateElection(signer, { electionName, candidates, network }) {
   const headers = await getAdminHeaders(signer);
   const res = await fetch(`${API_BASE}/api/admin/elections`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ electionName, candidates }),
+    body: JSON.stringify({ electionName, candidates, network }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || "Failed to create election");
