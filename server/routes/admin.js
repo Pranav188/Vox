@@ -22,17 +22,6 @@ const MAX_NAME_LENGTH = 200;
 const MAX_LABEL_LENGTH = 100;
 const VALID_GENDERS = ["Male", "Female", "Other"];
 
-// Used signature nonces to prevent replay attacks (auto-expire after 3 minutes)
-const usedNonces = new Map();
-const NONCE_EXPIRY_MS = 3 * 60 * 1000;
-function pruneExpiredNonces() {
-  const now = Date.now();
-  for (const [key, ts] of usedNonces) {
-    if (now - ts > NONCE_EXPIRY_MS) usedNonces.delete(key);
-  }
-}
-setInterval(pruneExpiredNonces, 60 * 1000);
-
 // In-flight lock to prevent TOCTOU race on admin register-voter
 const inFlightAadhaar = new Set();
 const inFlightWallets = new Set();
@@ -64,13 +53,6 @@ function requireAdmin(req, res, next) {
     if (Math.abs(now - timestamp) > 2 * 60 * 1000) {
       return res.status(401).json({ message: "Signature expired. Please sign in again." });
     }
-
-    // Prevent signature replay: each signature+timestamp pair can only be used once
-    const nonceKey = signature.slice(0, 32) + ":" + match[1];
-    if (usedNonces.has(nonceKey)) {
-      return res.status(401).json({ message: "Signature already used. Please sign again." });
-    }
-    usedNonces.set(nonceKey, now);
 
     // Recover signer address
     const signer = ethers.verifyMessage(message, signature).toLowerCase();
