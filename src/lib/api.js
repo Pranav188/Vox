@@ -62,17 +62,6 @@ export async function adminAddCitizen(signer, citizen) {
   return data;
 }
 
-export async function adminDeleteCitizen(signer, aadhaarId) {
-  const headers = await getAdminHeaders(signer);
-  const res = await fetch(`${API_BASE}/api/admin/citizens/${aadhaarId}`, {
-    method: "DELETE",
-    headers,
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || "Failed to delete citizen");
-  return data;
-}
-
 export async function adminGetAdmins(signer) {
   const headers = await getAdminHeaders(signer);
   const res = await fetch(`${API_BASE}/api/admin/admins`, { headers });
@@ -101,18 +90,6 @@ export async function adminRemoveAdmin(signer, walletAddress) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || "Failed to remove admin");
-  return data;
-}
-
-export async function adminRegisterVoter(signer, { aadhaarId, walletAddress }) {
-  const headers = await getAdminHeaders(signer);
-  const res = await fetch(`${API_BASE}/api/admin/register-voter`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ aadhaarId, walletAddress }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || "Failed to register voter");
   return data;
 }
 

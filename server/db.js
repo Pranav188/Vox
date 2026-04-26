@@ -140,9 +140,3 @@ export function getLatestElection(network) {
     .prepare("SELECT * FROM elections WHERE network = ? ORDER BY id DESC LIMIT 1")
     .get(network);
 }
-
-export function getAllElections(network) {
-  return getDb()
-    .prepare("SELECT * FROM elections WHERE network = ? ORDER BY id DESC")
-    .all(network);
-}
